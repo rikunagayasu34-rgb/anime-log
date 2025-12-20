@@ -30,6 +30,27 @@ const availableTags = [
   { emoji: '💕', label: 'キャラ萌え', value: 'キャラ萌え' },
 ];
 
+// 実績の型定義
+type Achievement = {
+  id: string;
+  name: string;
+  desc: string;
+  icon: string;
+  rarity: 'common' | 'rare' | 'epic' | 'legendary';
+  condition: number;
+};
+
+// 実績データ
+const achievements: Achievement[] = [
+  { id: 'first', name: '初めの一歩', desc: '初めてアニメを登録', icon: '🌱', rarity: 'common', condition: 1 },
+  { id: 'ten', name: '駆け出しオタク', desc: '10作品視聴', icon: '📺', rarity: 'common', condition: 10 },
+  { id: 'fifty', name: '中堅オタク', desc: '50作品視聴', icon: '🎖️', rarity: 'rare', condition: 50 },
+  { id: 'hundred', name: '歴戦の猛者', desc: '100作品視聴', icon: '🏅', rarity: 'epic', condition: 100 },
+  { id: 'rewatch3', name: '反復横跳び', desc: '1作品を3周', icon: '🔄', rarity: 'common', condition: 3 },
+  { id: 'rewatch10', name: '周回の鬼', desc: '1作品を10周', icon: '🌀', rarity: 'legendary', condition: 10 },
+  { id: 'godtaste', name: '神の舌', desc: '⭐5を10作品つける', icon: '👑', rarity: 'rare', condition: 10 },
+];
+
 // サンプルデータ
 const sampleSeasons: Season[] = [
   {
@@ -61,6 +82,131 @@ const ratingLabels: { [key: number]: { label: string; emoji: string } } = {
   2: { label: '完走', emoji: '🏃' },
   1: { label: '虚無', emoji: '😇' },
 };
+
+// 実績タブコンポーネント
+function AchievementsTab({ allAnimes, achievements }: { allAnimes: Anime[]; achievements: Achievement[] }) {
+  const [selectedAchievement, setSelectedAchievement] = useState<Achievement | null>(null);
+  
+  // 実績の解除判定
+  const checkAchievement = (achievement: Achievement): boolean => {
+    const watchedCount = allAnimes.filter(a => a.watched).length;
+    const maxRewatchCount = Math.max(...allAnimes.map(a => a.rewatchCount ?? 1), 0);
+    const godTasteCount = allAnimes.filter(a => a.rating === 5).length;
+    
+    switch (achievement.id) {
+      case 'first':
+        return watchedCount >= achievement.condition;
+      case 'ten':
+      case 'fifty':
+      case 'hundred':
+        return watchedCount >= achievement.condition;
+      case 'rewatch3':
+      case 'rewatch10':
+        return maxRewatchCount >= achievement.condition;
+      case 'godtaste':
+        return godTasteCount >= achievement.condition;
+      default:
+        return false;
+    }
+  };
+  
+  const unlockedCount = achievements.filter(a => checkAchievement(a)).length;
+  
+  const getRarityColor = (rarity: Achievement['rarity']) => {
+    switch (rarity) {
+      case 'common':
+        return 'bg-gray-400 dark:bg-gray-500';
+      case 'rare':
+        return 'bg-blue-500 dark:bg-blue-600';
+      case 'epic':
+        return 'bg-purple-500 dark:bg-purple-600';
+      case 'legendary':
+        return 'bg-yellow-500 dark:bg-yellow-600';
+      default:
+        return 'bg-gray-400';
+    }
+  };
+  
+  return (
+    <>
+      {/* 進捗表示 */}
+      <div className="mb-6 text-center">
+        <p className="text-2xl font-black dark:text-white">
+          {unlockedCount}/{achievements.length} 解除済み
+        </p>
+        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 mt-2">
+          <div
+            className="bg-indigo-600 h-2 rounded-full transition-all"
+            style={{ width: `${(unlockedCount / achievements.length) * 100}%` }}
+          />
+        </div>
+      </div>
+      
+      {/* バッジグリッド */}
+      <div className="grid grid-cols-3 gap-4">
+        {achievements.map((achievement) => {
+          const isUnlocked = checkAchievement(achievement);
+          const rarityColor = getRarityColor(achievement.rarity);
+          
+          return (
+            <button
+              key={achievement.id}
+              onClick={() => setSelectedAchievement(achievement)}
+              className={`relative aspect-square rounded-2xl p-4 flex flex-col items-center justify-center transition-all ${
+                isUnlocked
+                  ? `${rarityColor} ${achievement.rarity === 'legendary' ? 'animate-pulse' : ''} shadow-lg hover:scale-105`
+                  : 'bg-gray-200 dark:bg-gray-700 opacity-50'
+              }`}
+            >
+              {!isUnlocked && (
+                <span className="absolute top-1 right-1 text-xs">🔒</span>
+              )}
+              <span className="text-4xl mb-2">{achievement.icon}</span>
+              <span className={`text-xs font-bold text-center ${isUnlocked ? 'text-white' : 'text-gray-500 dark:text-gray-400'}`}>
+                {achievement.name}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      
+      {/* 詳細モーダル */}
+      {selectedAchievement && (
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={() => setSelectedAchievement(null)}
+        >
+          <div 
+            className="bg-white dark:bg-gray-800 rounded-2xl max-w-sm w-full p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-center mb-4">
+              <span className="text-6xl mb-2 block">{selectedAchievement.icon}</span>
+              <h3 className="text-xl font-bold dark:text-white mb-1">{selectedAchievement.name}</h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">{selectedAchievement.desc}</p>
+            </div>
+            
+            <div className="mb-4 p-3 bg-gray-100 dark:bg-gray-700 rounded-lg">
+              <p className="text-sm text-gray-700 dark:text-gray-300">
+                <span className="font-bold">解除条件:</span> {selectedAchievement.desc}
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                レア度: {selectedAchievement.rarity}
+              </p>
+            </div>
+            
+            <button 
+              onClick={() => setSelectedAchievement(null)}
+              className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors"
+            >
+              閉じる
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
 
 // アニメカード
 function AnimeCard({ anime, onClick }: { anime: Anime; onClick: () => void }) {
@@ -325,9 +471,10 @@ export default function Home() {
         )}
         
         {activeTab === 'achievements' && (
-          <div className="text-center py-12">
-            <p className="text-gray-500 dark:text-gray-400">実績機能は準備中です</p>
-          </div>
+          <AchievementsTab 
+            allAnimes={allAnimes}
+            achievements={achievements}
+          />
         )}
         
         {activeTab === 'profile' && (
