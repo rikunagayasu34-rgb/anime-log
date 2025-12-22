@@ -1,6 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { supabase } from './lib/supabase';
+import type { User } from '@supabase/supabase-js';
+import { searchAnime } from './lib/anilist';
 
 // シーズンの型定義
 type Season = {
@@ -196,6 +199,7 @@ function ProfileTab({
   setSelectedAnime,
   favoriteCharacters,
   setFavoriteCharacters,
+  handleLogout,
 }: {
   allAnimes: Anime[];
   userName: string;
@@ -209,6 +213,7 @@ function ProfileTab({
   setSelectedAnime: (anime: Anime | null) => void;
   favoriteCharacters: FavoriteCharacter[];
   setFavoriteCharacters: (characters: FavoriteCharacter[]) => void;
+  handleLogout: () => void;
 }) {
   const [showCreateListModal, setShowCreateListModal] = useState(false);
   const [selectedList, setSelectedList] = useState<EvangelistList | null>(null);
@@ -500,7 +505,7 @@ function ProfileTab({
           
           {/* ログアウト */}
           <button
-            onClick={() => {}}
+            onClick={handleLogout}
             className="w-full text-left py-2 text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-500 transition-colors"
           >
             ログアウト
@@ -1252,6 +1257,7 @@ function AnimeCard({ anime, onClick }: { anime: Anime; onClick: () => void }) {
 // メインページ
 export default function Home() {
   const [seasons, setSeasons] = useState<Season[]>([]);
+  const prevSeasonsRef = useRef<string>('');
   const [selectedAnime, setSelectedAnime] = useState<Anime | null>(null);
   const [count, setCount] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
@@ -1260,6 +1266,17 @@ export default function Home() {
   const [newAnimeTitle, setNewAnimeTitle] = useState('');
   const [newAnimeIcon, setNewAnimeIcon] = useState('🎬');
   const [newAnimeRating, setNewAnimeRating] = useState(0);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [selectedSearchResult, setSelectedSearchResult] = useState<any | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authError, setAuthError] = useState('');
   const [userName, setUserName] = useState<string>('ユーザー');
   const [userIcon, setUserIcon] = useState<string>('👤');
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
@@ -1267,6 +1284,27 @@ export default function Home() {
   const [expandedSeasons, setExpandedSeasons] = useState<Set<string>>(new Set());
   const [evangelistLists, setEvangelistLists] = useState<EvangelistList[]>([]);
   const [favoriteCharacters, setFavoriteCharacters] = useState<FavoriteCharacter[]>([]);
+
+  // 認証状態の監視
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      // 現在のセッションを確認
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        setUser(session?.user ?? null);
+        setIsLoading(false);
+      });
+
+      // 認証状態の変化を監視
+      const {
+        data: { subscription },
+      } = supabase.auth.onAuthStateChange((_event, session) => {
+        setUser(session?.user ?? null);
+        setIsLoading(false);
+      });
+
+      return () => subscription.unsubscribe();
+    }
+  }, []);
 
   // localStorageから初期値を読み込む
   useEffect(() => {
@@ -1312,24 +1350,9 @@ export default function Home() {
         setFavoriteCharacters(sampleFavoriteCharacters);
       }
       
-      // アニメデータを読み込む（保存済みがあればそれを使い、なければサンプルデータ）
-      if (savedSeasons) {
-        try {
-          const parsedSeasons = JSON.parse(savedSeasons);
-          setSeasons(parsedSeasons);
-          if (parsedSeasons.length > 0) {
-            setExpandedSeasons(new Set([parsedSeasons[0].name]));
-          }
-        } catch (e) {
-          // パースエラーの場合はサンプルデータを使用
-          setSeasons(sampleSeasons);
-          setExpandedSeasons(new Set([sampleSeasons[0].name]));
-        }
-      } else {
-        // 保存データがない場合はサンプルデータを使用
-        setSeasons(sampleSeasons);
-        setExpandedSeasons(new Set([sampleSeasons[0].name]));
-      }
+      // アニメデータを読み込む（未ログイン時のみlocalStorageから、ログイン時はSupabaseから読み込む）
+      // ログイン時はSupabaseからの読み込み処理（useEffect）で上書きされるため、ここでは未ログイン時の処理のみ
+      // ただし、isLoadingが完了するまで待つ必要があるため、この処理は認証状態確認後に行う
     }
   }, []);
 
@@ -1353,12 +1376,17 @@ export default function Home() {
     }
   }, [userName, userIcon]);
 
-  // アニメデータをlocalStorageに保存
+  // アニメデータをlocalStorageに保存（未ログイン時のみ）
   useEffect(() => {
-    if (typeof window !== 'undefined' && seasons.length > 0) {
-      localStorage.setItem('animeSeasons', JSON.stringify(seasons));
+    if (typeof window !== 'undefined' && !user && seasons.length > 0) {
+      const seasonsString = JSON.stringify(seasons);
+      // 前回の値と比較して、変更があった場合のみ保存
+      if (prevSeasonsRef.current !== seasonsString) {
+        localStorage.setItem('animeSeasons', seasonsString);
+        prevSeasonsRef.current = seasonsString;
+      }
     }
-  }, [seasons]);
+  }, [seasons, user]);
 
   // 布教リストをlocalStorageに保存
   useEffect(() => {
@@ -1373,6 +1401,205 @@ export default function Home() {
       localStorage.setItem('favoriteCharacters', JSON.stringify(favoriteCharacters));
     }
   }, [favoriteCharacters]);
+
+  // 認証処理
+  const handleAuth = async () => {
+    setAuthError('');
+    try {
+      if (authMode === 'login') {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: authEmail,
+          password: authPassword,
+        });
+        if (error) throw error;
+        setShowAuthModal(false);
+        setAuthEmail('');
+        setAuthPassword('');
+      } else {
+        const { data, error } = await supabase.auth.signUp({
+          email: authEmail,
+          password: authPassword,
+        });
+        if (error) throw error;
+        setShowAuthModal(false);
+        setAuthEmail('');
+        setAuthPassword('');
+        setAuthMode('login');
+      }
+    } catch (error: any) {
+      setAuthError(error.message || 'エラーが発生しました');
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      // ログアウト時にseasonsを空にする
+      setSeasons([]);
+    } catch (error: any) {
+      console.error('Logout error:', error);
+    }
+  };
+
+  // シーズン名を日本語に変換
+  const getSeasonName = (season: string) => {
+    const seasonMap: { [key: string]: string } = {
+      'WINTER': '冬',
+      'SPRING': '春',
+      'SUMMER': '夏',
+      'FALL': '秋',
+    };
+    return seasonMap[season] || season;
+  };
+
+  // 検索処理
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) return;
+    
+    setIsSearching(true);
+    setSearchResults([]);
+    setSelectedSearchResult(null);
+    
+    try {
+      const results = await searchAnime(searchQuery.trim());
+      setSearchResults(results || []);
+    } catch (error) {
+      console.error('Failed to search anime:', error);
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  // 検索結果を選択した時の処理
+  const handleSelectSearchResult = (result: any) => {
+    setSelectedSearchResult(result);
+    
+    // タイトルを自動入力
+    setNewAnimeTitle(result.title?.native || result.title?.romaji || '');
+    
+    // 画像URLを設定
+    if (result.coverImage?.medium) {
+      setNewAnimeIcon(result.coverImage.medium);
+    }
+    
+    // シーズン名を自動設定
+    if (result.seasonYear && result.season) {
+      const seasonName = `${result.seasonYear}年${getSeasonName(result.season)}`;
+      // 既存のシーズンに追加するか、新しいシーズンを作成
+      const existingSeason = seasons.find(s => s.name === seasonName);
+      if (!existingSeason && seasons.length > 0) {
+        // 最新のシーズンに追加する場合は、そのシーズン名を使用
+        // ここでは既存のロジックに任せる
+      }
+    }
+  };
+
+  // データマッピング関数：Anime型 → Supabase形式（snake_case）
+  const animeToSupabase = (anime: Anime, seasonName: string, userId: string) => {
+    return {
+      user_id: userId,
+      season_name: seasonName,
+      title: anime.title,
+      image: anime.image,
+      rating: anime.rating,
+      watched: anime.watched,
+      rewatch_count: anime.rewatchCount ?? 1,
+      tags: anime.tags || null,
+      songs: anime.songs || null,
+      quotes: anime.quotes || null,
+    };
+  };
+
+  // データマッピング関数：Supabase形式 → Anime型
+  const supabaseToAnime = (row: any): Anime => {
+    return {
+      id: row.id,
+      title: row.title,
+      image: row.image,
+      rating: row.rating,
+      watched: row.watched,
+      rewatchCount: row.rewatch_count ?? 1,
+      tags: row.tags || [],
+      songs: row.songs || undefined,
+      quotes: row.quotes || undefined,
+    };
+  };
+
+  // ログイン時にSupabaseからアニメデータを読み込む、未ログイン時はlocalStorageから読み込む
+  useEffect(() => {
+    const loadAnimes = async () => {
+      if (isLoading) return;
+
+      if (user) {
+        // ログイン時：Supabaseから読み込む
+        try {
+          const { data, error } = await supabase
+            .from('animes')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('id', { ascending: true });
+
+          if (error) throw error;
+
+          if (data && data.length > 0) {
+            // シーズンごとにグループ化
+            const seasonMap = new Map<string, Anime[]>();
+            data.forEach((row) => {
+              const anime = supabaseToAnime(row);
+              const seasonName = row.season_name || '未分類';
+              if (!seasonMap.has(seasonName)) {
+                seasonMap.set(seasonName, []);
+              }
+              seasonMap.get(seasonName)!.push(anime);
+            });
+
+            // Season型に変換
+            const loadedSeasons: Season[] = Array.from(seasonMap.entries()).map(([name, animes]) => ({
+              name,
+              animes,
+            }));
+
+            if (loadedSeasons.length > 0) {
+              setSeasons(loadedSeasons);
+              setExpandedSeasons(new Set([loadedSeasons[0].name]));
+            } else {
+              setSeasons([]);
+            }
+          } else {
+            setSeasons([]);
+          }
+        } catch (error) {
+          console.error('Failed to load animes from Supabase:', error);
+        }
+      } else {
+        // 未ログイン時：localStorageから読み込む
+        if (typeof window !== 'undefined') {
+          const savedSeasons = localStorage.getItem('animeSeasons');
+          if (savedSeasons) {
+            try {
+              const parsedSeasons = JSON.parse(savedSeasons);
+              setSeasons(parsedSeasons);
+              if (parsedSeasons.length > 0) {
+                setExpandedSeasons(new Set([parsedSeasons[0].name]));
+              }
+            } catch (e) {
+              // パースエラーの場合はサンプルデータを使用
+              setSeasons(sampleSeasons);
+              setExpandedSeasons(new Set([sampleSeasons[0].name]));
+            }
+          } else {
+            // 保存データがない場合はサンプルデータを使用
+            setSeasons(sampleSeasons);
+            setExpandedSeasons(new Set([sampleSeasons[0].name]));
+          }
+        }
+      }
+    };
+
+    loadAnimes();
+  }, [user, isLoading]);
 
   // すべてのアニメを取得
   const allAnimes = seasons.flatMap(season => season.animes);
@@ -1420,13 +1647,22 @@ export default function Home() {
             >
               {isDarkMode ? '☀️' : '🌙'}
             </button>
-            <button
-              onClick={() => setShowSettings(true)}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-            >
-              <span className="text-2xl">{userIcon}</span>
-              <span className="font-bold text-sm dark:text-white">{userName}</span>
-            </button>
+            {user ? (
+              <button
+                onClick={() => setShowSettings(true)}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              >
+                <span className="text-2xl">{userIcon}</span>
+                <span className="font-bold text-sm dark:text-white">{userName}</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => setShowAuthModal(true)}
+                className="px-3 py-1.5 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm transition-colors"
+              >
+                ログイン
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -1549,6 +1785,7 @@ export default function Home() {
             setSelectedAnime={setSelectedAnime}
             favoriteCharacters={favoriteCharacters}
             setFavoriteCharacters={setFavoriteCharacters}
+            handleLogout={handleLogout}
           />
         )}
       </main>
@@ -1556,28 +1793,118 @@ export default function Home() {
       {/* アニメ追加フォームモーダル */}
       {showAddForm && (
         <div 
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto"
           onClick={() => setShowAddForm(false)}
         >
           <div 
-            className="bg-white dark:bg-gray-800 rounded-2xl max-w-sm w-full p-6"
+            className="bg-white dark:bg-gray-800 rounded-2xl max-w-sm w-full max-h-[90vh] overflow-y-auto p-6 my-4"
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="text-xl font-bold mb-4 dark:text-white">新しいアニメを追加</h2>
             
-            {/* タイトル入力 */}
+            {/* 検索バー */}
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                タイトル
+                アニメを検索（AniList）
               </label>
-              <input
-                type="text"
-                value={newAnimeTitle}
-                onChange={(e) => setNewAnimeTitle(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
-                placeholder="アニメのタイトルを入力"
-              />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter' && searchQuery.trim()) {
+                      handleSearch();
+                    }
+                  }}
+                  className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
+                  placeholder="アニメタイトルで検索"
+                />
+                <button
+                  onClick={handleSearch}
+                  disabled={!searchQuery.trim() || isSearching}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                  {isSearching ? '検索中...' : '検索'}
+                </button>
+              </div>
             </div>
+
+            {/* 検索結果 */}
+            {isSearching && (
+              <div className="mb-4 text-center py-4">
+                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">検索中...</p>
+              </div>
+            )}
+
+            {searchResults.length > 0 && !isSearching && (
+              <div className="mb-4 max-h-80 overflow-y-auto">
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 sticky top-0 bg-white dark:bg-gray-800 py-1">検索結果</p>
+                <div className="space-y-2">
+                  {searchResults.map((result) => (
+                    <button
+                      key={result.id}
+                      onClick={() => handleSelectSearchResult(result)}
+                      className={`w-full flex items-center gap-3 p-3 rounded-lg border-2 transition-all ${
+                        selectedSearchResult?.id === result.id
+                          ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-900/30'
+                          : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-700 hover:border-indigo-300 dark:hover:border-indigo-600'
+                      }`}
+                    >
+                      <img
+                        src={result.coverImage?.medium || '🎬'}
+                        alt={result.title?.native || result.title?.romaji}
+                        className="w-16 h-24 object-cover rounded"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="96"><rect fill="%23ddd" width="64" height="96"/></svg>';
+                        }}
+                      />
+                      <div className="flex-1 text-left">
+                        <p className="font-bold text-sm dark:text-white">
+                          {result.title?.native || result.title?.romaji}
+                        </p>
+                        {result.title?.native && result.title?.romaji && result.title.native !== result.title.romaji && (
+                          <p className="text-xs text-gray-500 dark:text-gray-400">
+                            {result.title.romaji}
+                          </p>
+                        )}
+                        {result.seasonYear && (
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            {result.seasonYear}年 {result.season ? getSeasonName(result.season) : ''}
+                          </p>
+                        )}
+                        {result.genres && result.genres.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {result.genres.slice(0, 3).map((genre: string) => (
+                              <span key={genre} className="text-xs bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded-full">
+                                {genre}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* タイトル入力（検索結果がない場合または手動入力時） */}
+            {searchResults.length === 0 && !isSearching && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  タイトル
+                </label>
+                <input
+                  type="text"
+                  value={newAnimeTitle}
+                  onChange={(e) => setNewAnimeTitle(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
+                  placeholder="アニメのタイトルを入力"
+                />
+              </div>
+            )}
 
             {/* アイコン選択 */}
             <div className="mb-4">
@@ -1635,15 +1962,32 @@ export default function Home() {
                   setNewAnimeTitle('');
                   setNewAnimeIcon('🎬');
                   setNewAnimeRating(0);
+                  setSearchQuery('');
+                  setSearchResults([]);
+                  setSelectedSearchResult(null);
                 }}
                 className="flex-1 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 py-3 rounded-xl font-bold hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
               >
                 キャンセル
               </button>
               <button 
-                onClick={() => {
+                onClick={async () => {
                   if (newAnimeTitle.trim()) {
                     const maxId = Math.max(...seasons.flatMap(s => s.animes).map(a => a.id), 0);
+                    
+                    // 選択された検索結果からジャンルをタグとして取得
+                    const tags: string[] = [];
+                    if (selectedSearchResult?.genres && selectedSearchResult.genres.length > 0) {
+                      // ジャンルをタグとして追加（利用可能なタグにマッピング）
+                      selectedSearchResult.genres.forEach((genre: string) => {
+                        // ジャンルを利用可能なタグにマッピング（完全一致する場合は追加）
+                        const matchingTag = availableTags.find(t => t.label === genre);
+                        if (matchingTag) {
+                          tags.push(matchingTag.value);
+                        }
+                      });
+                    }
+                    
                     const newAnime: Anime = {
                       id: maxId + 1,
                       title: newAnimeTitle.trim(),
@@ -1651,18 +1995,88 @@ export default function Home() {
                       rating: newAnimeRating,
                       watched: true,
                       rewatchCount: 1,
+                      tags: tags.length > 0 ? tags : undefined,
                     };
+                    
+                    // シーズン名を決定（検索結果から取得、または既存のシーズン）
+                    let seasonName = '未分類';
+                    if (selectedSearchResult?.seasonYear && selectedSearchResult?.season) {
+                      seasonName = `${selectedSearchResult.seasonYear}年${getSeasonName(selectedSearchResult.season)}`;
+                    } else if (seasons.length > 0 && seasons[0]?.name) {
+                      seasonName = seasons[0].name;
+                    }
+                    
                     // 最新のシーズン（最初のシーズン）に追加
                     const updatedSeasons = [...seasons];
+                    
+                    if (updatedSeasons.length === 0 || !updatedSeasons[0]) {
+                      updatedSeasons.unshift({ name: seasonName, animes: [] });
+                    }
+                    
                     updatedSeasons[0] = {
                       ...updatedSeasons[0],
+                      name: seasonName,
                       animes: [...updatedSeasons[0].animes, newAnime],
                     };
+                    
+                    // Supabaseに保存（ログイン時のみ）
+                    if (user) {
+                      try {
+                        const supabaseData = animeToSupabase(newAnime, seasonName, user.id);
+                        console.log('Attempting to insert to Supabase:', {
+                          table: 'animes',
+                          data: supabaseData,
+                          userId: user.id,
+                        });
+                        
+                        const { data, error } = await supabase
+                          .from('animes')
+                          .insert(supabaseData)
+                          .select()
+                          .single();
+                        
+                        if (error) {
+                          console.error('Supabase insert error:', error);
+                          console.error('Error object:', JSON.stringify(error, null, 2));
+                          console.error('Error properties:', Object.keys(error));
+                          console.error('Error message:', error.message);
+                          console.error('Error details:', error.details);
+                          console.error('Error hint:', error.hint);
+                          console.error('Error code:', error.code);
+                          throw error;
+                        }
+                        
+                        console.log('Successfully inserted to Supabase:', data);
+                        
+                        // Supabaseが生成したIDを使用してアニメを更新
+                        if (data) {
+                          const savedAnime = supabaseToAnime(data);
+                          updatedSeasons[0].animes[updatedSeasons[0].animes.length - 1] = savedAnime;
+                        }
+                      } catch (error: any) {
+                        console.error('Failed to save anime to Supabase');
+                        console.error('Error type:', typeof error);
+                        console.error('Error constructor:', error?.constructor?.name);
+                        console.error('Error as string:', String(error));
+                        console.error('Error as JSON:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+                        if (error) {
+                          console.error('Error message:', error.message);
+                          console.error('Error details:', error.details);
+                          console.error('Error hint:', error.hint);
+                          console.error('Error code:', error.code);
+                        }
+                        // エラーが発生してもローカル状態は更新する
+                      }
+                    }
+                    
                     setSeasons(updatedSeasons);
                     setShowAddForm(false);
                     setNewAnimeTitle('');
                     setNewAnimeIcon('🎬');
                     setNewAnimeRating(0);
+                    setSearchQuery('');
+                    setSearchResults([]);
+                    setSelectedSearchResult(null);
                   }
                 }}
                 className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors"
@@ -1732,6 +2146,120 @@ export default function Home() {
         </div>
       )}
 
+      {/* 認証モーダル */}
+      {showAuthModal && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={() => {
+            setShowAuthModal(false);
+            setAuthError('');
+            setAuthEmail('');
+            setAuthPassword('');
+          }}
+        >
+          <div
+            className="bg-white dark:bg-gray-800 rounded-2xl max-w-sm w-full p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-xl font-bold mb-4 dark:text-white">
+              {authMode === 'login' ? 'ログイン' : '新規登録'}
+            </h2>
+
+            {/* タブ切り替え */}
+            <div className="flex gap-2 mb-4">
+              <button
+                onClick={() => {
+                  setAuthMode('login');
+                  setAuthError('');
+                }}
+                className={`flex-1 py-2 rounded-lg font-medium transition-colors ${
+                  authMode === 'login'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                ログイン
+              </button>
+              <button
+                onClick={() => {
+                  setAuthMode('signup');
+                  setAuthError('');
+                }}
+                className={`flex-1 py-2 rounded-lg font-medium transition-colors ${
+                  authMode === 'signup'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                新規登録
+              </button>
+            </div>
+
+            {/* エラーメッセージ */}
+            {authError && (
+              <div className="mb-4 p-3 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-lg text-sm">
+                {authError}
+              </div>
+            )}
+
+            {/* メールアドレス入力 */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                メールアドレス
+              </label>
+              <input
+                type="email"
+                value={authEmail}
+                onChange={(e) => setAuthEmail(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
+                placeholder="example@email.com"
+              />
+            </div>
+
+            {/* パスワード入力 */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                パスワード
+              </label>
+              <input
+                type="password"
+                value={authPassword}
+                onChange={(e) => setAuthPassword(e.target.value)}
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter') {
+                    handleAuth();
+                  }
+                }}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
+                placeholder="パスワードを入力"
+              />
+            </div>
+
+            {/* 送信ボタン */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowAuthModal(false);
+                  setAuthError('');
+                  setAuthEmail('');
+                  setAuthPassword('');
+                }}
+                className="flex-1 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 py-3 rounded-xl font-bold hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={handleAuth}
+                disabled={!authEmail || !authPassword}
+                className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+              >
+                {authMode === 'login' ? 'ログイン' : '登録'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* アニメ詳細モーダル */}
       {selectedAnime && (
         <div 
@@ -1754,7 +2282,7 @@ export default function Home() {
                 {[1, 2, 3, 4, 5].map((rating) => (
                   <button
                     key={rating}
-                    onClick={() => {
+                    onClick={async () => {
                       const updatedSeasons = seasons.map(season => ({
                         ...season,
                         animes: season.animes.map((anime) =>
@@ -1763,6 +2291,22 @@ export default function Home() {
                             : anime
                         ),
                       }));
+                      
+                      // Supabaseを更新（ログイン時のみ）
+                      if (user) {
+                        try {
+                          const { error } = await supabase
+                            .from('animes')
+                            .update({ rating })
+                            .eq('id', selectedAnime.id)
+                            .eq('user_id', user.id);
+                          
+                          if (error) throw error;
+                        } catch (error) {
+                          console.error('Failed to update anime rating in Supabase:', error);
+                        }
+                      }
+                      
                       setSeasons(updatedSeasons);
                       setSelectedAnime({ ...selectedAnime, rating });
                     }}
@@ -1797,7 +2341,7 @@ export default function Home() {
                   return (
                     <button
                       key={tag.value}
-                      onClick={() => {
+                      onClick={async () => {
                         const currentTags = selectedAnime.tags ?? [];
                         const newTags = isSelected
                           ? currentTags.filter(t => t !== tag.value)
@@ -1810,6 +2354,22 @@ export default function Home() {
                               : anime
                           ),
                         }));
+                        
+                        // Supabaseを更新（ログイン時のみ）
+                        if (user) {
+                          try {
+                            const { error } = await supabase
+                              .from('animes')
+                              .update({ tags: newTags })
+                              .eq('id', selectedAnime.id)
+                              .eq('user_id', user.id);
+                            
+                            if (error) throw error;
+                          } catch (error) {
+                            console.error('Failed to update anime tags in Supabase:', error);
+                          }
+                        }
+                        
                         setSeasons(updatedSeasons);
                         setSelectedAnime({ ...selectedAnime, tags: newTags });
                       }}
@@ -1841,7 +2401,7 @@ export default function Home() {
                         <p className="text-xs text-gray-600 dark:text-gray-400">{selectedAnime.songs.op.artist}</p>
                       </div>
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           const updatedSeasons = seasons.map(season => ({
                             ...season,
                             animes: season.animes.map((anime) =>
@@ -1858,6 +2418,26 @@ export default function Home() {
                                 : anime
                             ),
                           }));
+                          
+                          // Supabaseを更新（ログイン時のみ）
+                          if (user && selectedAnime.songs?.op) {
+                            try {
+                              const updatedSongs = {
+                                ...selectedAnime.songs,
+                                op: { ...selectedAnime.songs.op, isFavorite: !selectedAnime.songs.op.isFavorite },
+                              };
+                              const { error } = await supabase
+                                .from('animes')
+                                .update({ songs: updatedSongs })
+                                .eq('id', selectedAnime.id)
+                                .eq('user_id', user.id);
+                              
+                              if (error) throw error;
+                            } catch (error) {
+                              console.error('Failed to update anime songs in Supabase:', error);
+                            }
+                          }
+                          
                           setSeasons(updatedSeasons);
                           setSelectedAnime({
                             ...selectedAnime,
@@ -1878,7 +2458,7 @@ export default function Home() {
                       {[1, 2, 3, 4, 5].map((rating) => (
                         <button
                           key={rating}
-                          onClick={() => {
+                          onClick={async () => {
                             const updatedSeasons = seasons.map(season => ({
                               ...season,
                               animes: season.animes.map((anime) =>
@@ -1895,6 +2475,26 @@ export default function Home() {
                                   : anime
                               ),
                             }));
+                            
+                            // Supabaseを更新（ログイン時のみ）
+                            if (user && selectedAnime.songs?.op) {
+                              try {
+                                const updatedSongs = {
+                                  ...selectedAnime.songs,
+                                  op: { ...selectedAnime.songs.op, rating },
+                                };
+                                const { error } = await supabase
+                                  .from('animes')
+                                  .update({ songs: updatedSongs })
+                                  .eq('id', selectedAnime.id)
+                                  .eq('user_id', user.id);
+                                
+                                if (error) throw error;
+                              } catch (error) {
+                                console.error('Failed to update anime songs in Supabase:', error);
+                              }
+                            }
+                            
                             setSeasons(updatedSeasons);
                             setSelectedAnime({
                               ...selectedAnime,
@@ -1933,7 +2533,7 @@ export default function Home() {
                         <p className="text-xs text-gray-600 dark:text-gray-400">{selectedAnime.songs.ed.artist}</p>
                       </div>
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           const updatedSeasons = seasons.map(season => ({
                             ...season,
                             animes: season.animes.map((anime) =>
@@ -1950,6 +2550,26 @@ export default function Home() {
                                 : anime
                             ),
                           }));
+                          
+                          // Supabaseを更新（ログイン時のみ）
+                          if (user && selectedAnime.songs?.ed) {
+                            try {
+                              const updatedSongs = {
+                                ...selectedAnime.songs,
+                                ed: { ...selectedAnime.songs.ed, isFavorite: !selectedAnime.songs.ed.isFavorite },
+                              };
+                              const { error } = await supabase
+                                .from('animes')
+                                .update({ songs: updatedSongs })
+                                .eq('id', selectedAnime.id)
+                                .eq('user_id', user.id);
+                              
+                              if (error) throw error;
+                            } catch (error) {
+                              console.error('Failed to update anime songs in Supabase:', error);
+                            }
+                          }
+                          
                           setSeasons(updatedSeasons);
                           setSelectedAnime({
                             ...selectedAnime,
@@ -1970,7 +2590,7 @@ export default function Home() {
                       {[1, 2, 3, 4, 5].map((rating) => (
                         <button
                           key={rating}
-                          onClick={() => {
+                          onClick={async () => {
                             const updatedSeasons = seasons.map(season => ({
                               ...season,
                               animes: season.animes.map((anime) =>
@@ -1987,6 +2607,26 @@ export default function Home() {
                                   : anime
                               ),
                             }));
+                            
+                            // Supabaseを更新（ログイン時のみ）
+                            if (user && selectedAnime.songs?.ed) {
+                              try {
+                                const updatedSongs = {
+                                  ...selectedAnime.songs,
+                                  ed: { ...selectedAnime.songs.ed, rating },
+                                };
+                                const { error } = await supabase
+                                  .from('animes')
+                                  .update({ songs: updatedSongs })
+                                  .eq('id', selectedAnime.id)
+                                  .eq('user_id', user.id);
+                                
+                                if (error) throw error;
+                              } catch (error) {
+                                console.error('Failed to update anime songs in Supabase:', error);
+                              }
+                            }
+                            
                             setSeasons(updatedSeasons);
                             setSelectedAnime({
                               ...selectedAnime,
@@ -2020,25 +2660,42 @@ export default function Home() {
               <div className="flex items-center justify-between mb-3">
                 <p className="text-sm text-gray-600 dark:text-gray-400 font-medium">名言</p>
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     const newQuoteText = prompt('セリフを入力してください:');
                     if (newQuoteText) {
                       const newQuoteCharacter = prompt('キャラクター名（任意）:') || undefined;
+                      const newQuotes = [...(selectedAnime.quotes || []), { text: newQuoteText, character: newQuoteCharacter }];
                       const updatedSeasons = seasons.map(season => ({
                         ...season,
                         animes: season.animes.map((anime) =>
                           anime.id === selectedAnime.id
                             ? {
                                 ...anime,
-                                quotes: [...(anime.quotes || []), { text: newQuoteText, character: newQuoteCharacter }],
+                                quotes: newQuotes,
                               }
                             : anime
                         ),
                       }));
+                      
+                      // Supabaseを更新（ログイン時のみ）
+                      if (user) {
+                        try {
+                          const { error } = await supabase
+                            .from('animes')
+                            .update({ quotes: newQuotes })
+                            .eq('id', selectedAnime.id)
+                            .eq('user_id', user.id);
+                          
+                          if (error) throw error;
+                        } catch (error) {
+                          console.error('Failed to update anime quotes in Supabase:', error);
+                        }
+                      }
+                      
                       setSeasons(updatedSeasons);
                       setSelectedAnime({
                         ...selectedAnime,
-                        quotes: [...(selectedAnime.quotes || []), { text: newQuoteText, character: newQuoteCharacter }],
+                        quotes: newQuotes,
                       });
                     }
                   }}
@@ -2060,7 +2717,7 @@ export default function Home() {
                         <p className="text-xs text-gray-500 dark:text-gray-400">— {quote.character}</p>
                       )}
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           const updatedQuotes = selectedAnime.quotes?.filter((_, i) => i !== index) || [];
                           const updatedSeasons = seasons.map(season => ({
                             ...season,
@@ -2070,6 +2727,22 @@ export default function Home() {
                                 : anime
                             ),
                           }));
+                          
+                          // Supabaseを更新（ログイン時のみ）
+                          if (user) {
+                            try {
+                              const { error } = await supabase
+                                .from('animes')
+                                .update({ quotes: updatedQuotes })
+                                .eq('id', selectedAnime.id)
+                                .eq('user_id', user.id);
+                              
+                              if (error) throw error;
+                            } catch (error) {
+                              console.error('Failed to update anime quotes in Supabase:', error);
+                            }
+                          }
+                          
                           setSeasons(updatedSeasons);
                           setSelectedAnime({ ...selectedAnime, quotes: updatedQuotes });
                         }}
@@ -2087,7 +2760,45 @@ export default function Home() {
 
             <div className="flex gap-3">
               <button 
-                onClick={() => {
+                onClick={async () => {
+                  // Supabaseから削除（ログイン時のみ）
+                  if (user) {
+                    try {
+                      // ローカルで生成されたID（非常に大きい数値）の場合は、Supabaseに保存されていない可能性がある
+                      // SupabaseのIDは通常、連番の小さい数値なので、大きすぎるIDの場合はスキップ
+                      const isLocalId = selectedAnime.id > 1000000;
+                      
+                      if (!isLocalId) {
+                        const { data, error } = await supabase
+                          .from('animes')
+                          .delete()
+                          .eq('id', selectedAnime.id)
+                          .eq('user_id', user.id)
+                          .select();
+                        
+                        if (error) {
+                          console.error('Supabase delete error:', error);
+                          throw error;
+                        }
+                        
+                        console.log('Deleted anime from Supabase:', data);
+                      } else {
+                        console.log('Skipping Supabase delete for local ID:', selectedAnime.id);
+                      }
+                    } catch (error: any) {
+                      console.error('Failed to delete anime from Supabase:', error);
+                      console.error('Error details:', {
+                        message: error?.message,
+                        details: error?.details,
+                        hint: error?.hint,
+                        code: error?.code,
+                        animeId: selectedAnime.id,
+                        userId: user.id,
+                      });
+                      // エラーが発生してもローカル状態は更新する
+                    }
+                  }
+                  
                   const updatedSeasons = seasons.map(season => ({
                     ...season,
                     animes: season.animes.filter((anime) => anime.id !== selectedAnime.id),
