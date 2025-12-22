@@ -13,6 +13,7 @@ export async function searchAnime(query: string) {
             }
             coverImage {
               medium
+              large
             }
             seasonYear
             season

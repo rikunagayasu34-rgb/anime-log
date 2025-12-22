@@ -20,6 +20,7 @@ type Anime = {
   watched: boolean;
   rewatchCount?: number;
   tags?: string[];
+  seriesName?: string; // シリーズ名（任意）
   songs?: {
     op?: { title: string; artist: string; rating: number; isFavorite: boolean };
     ed?: { title: string; artist: string; rating: number; isFavorite: boolean };
@@ -1204,27 +1205,66 @@ function MusicTab({
 function AnimeCard({ anime, onClick }: { anime: Anime; onClick: () => void }) {
   const rating = ratingLabels[anime.rating];
   const rewatchCount = anime.rewatchCount ?? 1;
+  const [imageError, setImageError] = useState(false);
+  const [imageLoading, setImageLoading] = useState(true);
+  
+  // imageがURLか絵文字かを判定（httpまたはhttpsで始まる場合）
+  const isImageUrl = anime.image && (anime.image.startsWith('http://') || anime.image.startsWith('https://'));
+  
+  // コンポーネントがマウントされた時、またはimageが変わった時にリセット
+  useEffect(() => {
+    if (isImageUrl) {
+      setImageLoading(true);
+      setImageError(false);
+    } else {
+      setImageLoading(false);
+      setImageError(false);
+    }
+  }, [anime.image, isImageUrl]);
   
   return (
     <div 
       onClick={onClick}
       className="bg-white dark:bg-gray-800 rounded-2xl shadow-md dark:shadow-gray-900/50 overflow-hidden cursor-pointer hover:scale-105 hover:shadow-2xl transition-all relative"
     >
-      <div className="aspect-[3/4] bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-5xl relative">
+      <div className="aspect-[3/4] bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-5xl relative overflow-hidden rounded-t-2xl">
         {/* 周回数バッジ */}
-        <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-sm rounded-full px-2 py-1 flex items-center gap-1">
+        <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-sm rounded-full px-2 py-1 flex items-center gap-1 z-10">
           <span className="text-xs">🔄</span>
           <span className="text-white text-xs font-bold">{rewatchCount}周</span>
         </div>
         
         {/* 視聴済みチェックマーク */}
         {anime.watched && (
-          <div className="absolute top-2 right-2 bg-green-500 rounded-full w-6 h-6 flex items-center justify-center">
+          <div className="absolute top-2 right-2 bg-green-500 rounded-full w-6 h-6 flex items-center justify-center z-10">
             <span className="text-white text-xs font-bold">✓</span>
           </div>
         )}
         
-        {anime.image}
+        {/* 画像または絵文字を表示 */}
+        {isImageUrl && !imageError ? (
+          <>
+            {imageLoading && (
+              <div className="absolute inset-0 bg-gradient-to-br from-indigo-500 to-purple-600 animate-pulse" />
+            )}
+            <img
+              src={anime.image}
+              alt={anime.title}
+              className={`w-full h-full object-cover ${imageLoading ? 'opacity-0' : 'opacity-100'} transition-opacity duration-300`}
+              onLoad={() => {
+                setImageLoading(false);
+                setImageError(false);
+              }}
+              onError={(e) => {
+                console.error('Image load error for:', anime.title, 'URL:', anime.image);
+                setImageError(true);
+                setImageLoading(false);
+              }}
+            />
+          </>
+        ) : (
+          <span>{imageError ? '🎬' : anime.image || '🎬'}</span>
+        )}
       </div>
       <div className="p-3">
         <p className="font-bold text-sm truncate dark:text-white">{anime.title}</p>
@@ -1280,10 +1320,26 @@ export default function Home() {
   const [userName, setUserName] = useState<string>('ユーザー');
   const [userIcon, setUserIcon] = useState<string>('👤');
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<'home' | 'music' | 'achievements' | 'profile'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'discover' | 'collection' | 'profile'>('home');
+  const [homeSubTab, setHomeSubTab] = useState<'seasons' | 'series'>('seasons');
+  const [discoverSubTab, setDiscoverSubTab] = useState<'trends' | 'dna'>('trends');
+  const [collectionSubTab, setCollectionSubTab] = useState<'achievements' | 'characters' | 'quotes' | 'lists' | 'music'>('achievements');
   const [expandedSeasons, setExpandedSeasons] = useState<Set<string>>(new Set());
   const [evangelistLists, setEvangelistLists] = useState<EvangelistList[]>([]);
   const [favoriteCharacters, setFavoriteCharacters] = useState<FavoriteCharacter[]>([]);
+  const [showCreateListModal, setShowCreateListModal] = useState(false);
+  const [selectedList, setSelectedList] = useState<EvangelistList | null>(null);
+  const [newListTitle, setNewListTitle] = useState('');
+  const [newListDescription, setNewListDescription] = useState('');
+  const [selectedAnimeIds, setSelectedAnimeIds] = useState<number[]>([]);
+  const [editingList, setEditingList] = useState<EvangelistList | null>(null);
+  const [showAddCharacterModal, setShowAddCharacterModal] = useState(false);
+  const [newCharacterName, setNewCharacterName] = useState('');
+  const [newCharacterAnimeId, setNewCharacterAnimeId] = useState<number | null>(null);
+  const [newCharacterImage, setNewCharacterImage] = useState('👤');
+  const [newCharacterCategory, setNewCharacterCategory] = useState('');
+  const [newCharacterTags, setNewCharacterTags] = useState<string[]>([]);
+  const [newCustomTag, setNewCustomTag] = useState('');
 
   // 認証状態の監視
   useEffect(() => {
@@ -1472,16 +1528,43 @@ export default function Home() {
     }
   };
 
+  // タイトルからシリーズ名を自動判定する関数
+  const extractSeriesName = (title: string): string | undefined => {
+    // 「2期」「3期」「Season 2」「S2」などのパターンを検出
+    const patterns = [
+      /^(.+?)\s*[第]?(\d+)[期季]/,
+      /^(.+?)\s*Season\s*(\d+)/i,
+      /^(.+?)\s*S(\d+)/i,
+      /^(.+?)\s*第(\d+)期/,
+      /^(.+?)\s*第(\d+)シーズン/i,
+    ];
+    
+    for (const pattern of patterns) {
+      const match = title.match(pattern);
+      if (match && match[1]) {
+        return match[1].trim();
+      }
+    }
+    
+    return undefined;
+  };
+
   // 検索結果を選択した時の処理
   const handleSelectSearchResult = (result: any) => {
     setSelectedSearchResult(result);
     
-    // タイトルを自動入力
-    setNewAnimeTitle(result.title?.native || result.title?.romaji || '');
+    const title = result.title?.native || result.title?.romaji || '';
     
-    // 画像URLを設定
-    if (result.coverImage?.medium) {
-      setNewAnimeIcon(result.coverImage.medium);
+    // タイトルを自動入力
+    setNewAnimeTitle(title);
+    
+    // シリーズ名を自動判定
+    const seriesName = extractSeriesName(title);
+    // シリーズ名は後でnewAnimeに設定する際に使用
+    
+    // 画像URLを設定（largeがあればlarge、なければmediumを使用）
+    if (result.coverImage?.large || result.coverImage?.medium) {
+      setNewAnimeIcon(result.coverImage.large || result.coverImage.medium);
     }
     
     // シーズン名を自動設定
@@ -1509,6 +1592,7 @@ export default function Home() {
       tags: anime.tags || null,
       songs: anime.songs || null,
       quotes: anime.quotes || null,
+      series_name: anime.seriesName || null,
     };
   };
 
@@ -1524,6 +1608,7 @@ export default function Home() {
       tags: row.tags || [],
       songs: row.songs || undefined,
       quotes: row.quotes || undefined,
+      seriesName: row.series_name || undefined,
     };
   };
 
@@ -1671,42 +1756,62 @@ export default function Home() {
       <main className="max-w-md mx-auto px-4 py-6 pb-24">
         {activeTab === 'home' && (
           <>
-        {/* 統計カード */}
-            <div className="bg-gradient-to-br from-indigo-600 to-purple-600 rounded-2xl p-5 text-white mb-6 relative">
-              {/* オタクタイプ */}
-              <div className="mb-4 flex items-center justify-between">
-                <p className="text-white/90 text-sm font-medium">
-                  あなたは 🎵 音響派
-                </p>
-                <button 
-                  onClick={() => setShowDNAModal(true)}
-                  className="text-white/80 hover:text-white transition-colors text-sm font-bold"
-                >
-                  DNA
-                </button>
-              </div>
-              
-              {/* 統計情報 */}
-              <div className="grid grid-cols-3 gap-4">
-                <div className="text-center">
-                  <p className="text-3xl font-black">{count}</p>
-                  <p className="text-white/80 text-xs mt-1">作品</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-3xl font-black">12</p>
-                  <p className="text-white/80 text-xs mt-1">周</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-3xl font-black">
-                    {averageRating > 0 ? `⭐${averageRating.toFixed(1)}` : '⭐0.0'}
-                  </p>
-                  <p className="text-white/80 text-xs mt-1">平均評価</p>
-                </div>
-              </div>
-        </div>
+            {/* サブタブ */}
+            <div className="flex gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
+              <button
+                onClick={() => setHomeSubTab('seasons')}
+                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
+                  homeSubTab === 'seasons'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                クール別
+              </button>
+              <button
+                onClick={() => setHomeSubTab('series')}
+                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
+                  homeSubTab === 'series'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                シリーズ
+              </button>
+            </div>
 
-        {/* アニメ一覧 */}
-            {seasons.map((season) => {
+            {homeSubTab === 'seasons' && (
+              <>
+                {/* 統計カード */}
+                <div className="bg-gradient-to-br from-indigo-600 to-purple-600 rounded-2xl p-5 text-white mb-6 relative">
+                  {/* オタクタイプ */}
+                  <div className="mb-4 flex items-center justify-between">
+                    <p className="text-white/90 text-sm font-medium">
+                      あなたは 🎵 音響派
+                    </p>
+                  </div>
+                  
+                  {/* 統計情報 */}
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="text-center">
+                      <p className="text-3xl font-black">{count}</p>
+                      <p className="text-white/80 text-xs mt-1">作品</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-3xl font-black">12</p>
+                      <p className="text-white/80 text-xs mt-1">周</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-3xl font-black">
+                        {averageRating > 0 ? `⭐${averageRating.toFixed(1)}` : '⭐0.0'}
+                      </p>
+                      <p className="text-white/80 text-xs mt-1">平均評価</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* アニメ一覧 */}
+                {seasons.map((season) => {
               const isExpanded = expandedSeasons.has(season.name);
               const watchedCount = season.animes.filter(a => a.watched).length;
               
@@ -1750,25 +1855,572 @@ export default function Home() {
               );
             })}
 
-        {/* 追加ボタン */}
-            <button 
-              onClick={() => setShowAddForm(true)}
-              className="w-full mt-6 py-4 border-2 border-dashed border-indigo-300 dark:border-indigo-600 rounded-2xl text-indigo-600 dark:text-indigo-400 font-bold hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
-            >
-          + アニメを追加
-        </button>
+                {/* 追加ボタン */}
+                <button 
+                  onClick={() => setShowAddForm(true)}
+                  className="w-full mt-6 py-4 border-2 border-dashed border-indigo-300 dark:border-indigo-600 rounded-2xl text-indigo-600 dark:text-indigo-400 font-bold hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors"
+                >
+                  + アニメを追加
+                </button>
+              </>
+            )}
+
+            {homeSubTab === 'series' && (
+              <div className="space-y-6">
+                {(() => {
+                  // すべてのアニメを取得
+                  const allAnimes = seasons.flatMap(s => s.animes);
+                  
+                  // シリーズごとにグループ化
+                  const seriesMap = new Map<string, Anime[]>();
+                  const standaloneAnimes: Anime[] = [];
+                  
+                  allAnimes.forEach(anime => {
+                    if (anime.seriesName) {
+                      if (!seriesMap.has(anime.seriesName)) {
+                        seriesMap.set(anime.seriesName, []);
+                      }
+                      seriesMap.get(anime.seriesName)!.push(anime);
+                    } else {
+                      standaloneAnimes.push(anime);
+                    }
+                  });
+                  
+                  // シリーズ内を時系列順にソート（seasonNameから判断、または追加順）
+                  seriesMap.forEach((animes, seriesName) => {
+                    animes.sort((a, b) => {
+                      // 同じシーズン内の順序を保持するため、元の順序を使用
+                      const aSeason = seasons.find(s => s.animes.includes(a));
+                      const bSeason = seasons.find(s => s.animes.includes(b));
+                      if (aSeason && bSeason) {
+                        const seasonIndexA = seasons.indexOf(aSeason);
+                        const seasonIndexB = seasons.indexOf(bSeason);
+                        if (seasonIndexA !== seasonIndexB) {
+                          return seasonIndexA - seasonIndexB;
+                        }
+                        const animeIndexA = aSeason.animes.indexOf(a);
+                        const animeIndexB = bSeason.animes.indexOf(b);
+                        return animeIndexA - animeIndexB;
+                      }
+                      return 0;
+                    });
+                  });
+                  
+                  const seriesArray = Array.from(seriesMap.entries());
+                  
+                  return (
+                    <>
+                      {/* シリーズ一覧 */}
+                      {seriesArray.map(([seriesName, animes]) => (
+                        <div key={seriesName} className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md">
+                          <div className="flex items-center justify-between mb-3">
+                            <h2 className="text-xl font-bold dark:text-white">{seriesName}</h2>
+                            <span className="text-sm text-gray-500 dark:text-gray-400">
+                              全{animes.length}作品
+                            </span>
+                          </div>
+                          <div className="overflow-x-auto pb-2 scrollbar-hide">
+                            <div className="flex gap-3" style={{ minWidth: 'max-content' }}>
+                              {animes.map((anime) => (
+                                <div
+                                  key={anime.id}
+                                  onClick={() => setSelectedAnime(anime)}
+                                  className="flex-shrink-0 w-24 cursor-pointer"
+                                >
+                                  <AnimeCard anime={anime} onClick={() => setSelectedAnime(anime)} />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      
+                      {/* 単発作品 */}
+                      {standaloneAnimes.length > 0 && (
+                        <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md">
+                          <div className="flex items-center justify-between mb-3">
+                            <h2 className="text-xl font-bold dark:text-white">単発作品</h2>
+                            <span className="text-sm text-gray-500 dark:text-gray-400">
+                              全{standaloneAnimes.length}作品
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-3 gap-3">
+                            {standaloneAnimes.map((anime) => (
+                              <AnimeCard
+                                key={anime.id}
+                                anime={anime}
+                                onClick={() => setSelectedAnime(anime)}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {seriesArray.length === 0 && standaloneAnimes.length === 0 && (
+                        <p className="text-gray-500 dark:text-gray-400 text-center py-8">
+                          アニメが登録されていません
+                        </p>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+            )}
           </>
         )}
         
-        {activeTab === 'music' && (
-          <MusicTab allAnimes={allAnimes} seasons={seasons} setSeasons={setSeasons} />
+        {activeTab === 'discover' && (
+          <>
+            {/* サブタブ */}
+            <div className="flex gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
+              <button
+                onClick={() => setDiscoverSubTab('trends')}
+                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
+                  discoverSubTab === 'trends'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                傾向分析
+              </button>
+              <button
+                onClick={() => setDiscoverSubTab('dna')}
+                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
+                  discoverSubTab === 'dna'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                DNAカード
+              </button>
+            </div>
+
+            {discoverSubTab === 'trends' && (
+              <div className="space-y-6">
+                {(() => {
+                  // 統計データの計算
+                  const totalAnimes = allAnimes.length;
+                  const totalRewatchCount = allAnimes.reduce((sum, a) => sum + (a.rewatchCount ?? 1), 0);
+                  const avgRating = allAnimes.length > 0
+                    ? allAnimes.reduce((sum, a) => sum + (a.rating || 0), 0) / allAnimes.length
+                    : 0;
+                  
+                  // 最も見たクールを計算
+                  const seasonCounts: { [key: string]: number } = {};
+                  seasons.forEach(season => {
+                    seasonCounts[season.name] = season.animes.length;
+                  });
+                  const mostWatchedSeason = Object.entries(seasonCounts)
+                    .sort((a, b) => b[1] - a[1])[0];
+                  
+                  // タグの使用頻度
+                  const tagCounts: { [key: string]: number } = {};
+                  allAnimes.forEach(anime => {
+                    anime.tags?.forEach(tag => {
+                      tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+                    });
+                  });
+                  const sortedTags = Object.entries(tagCounts)
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 5);
+                  const maxTagCount = sortedTags.length > 0 ? sortedTags[0][1] : 1;
+                  
+                  // 評価分布
+                  const ratingCounts = [5, 4, 3, 2, 1].map(rating => ({
+                    rating,
+                    count: allAnimes.filter(a => a.rating === rating).length,
+                  }));
+                  const maxRatingCount = Math.max(...ratingCounts.map(r => r.count), 1);
+                  
+                  // クール別視聴数
+                  const seasonAnimeCounts = seasons.map(season => ({
+                    name: season.name,
+                    count: season.animes.length,
+                  }));
+                  const maxSeasonCount = Math.max(...seasonAnimeCounts.map(s => s.count), 1);
+                  
+                  // 傾向テキスト生成
+                  const topTags = sortedTags.slice(0, 2);
+                  const tendencyText = topTags.length > 0
+                    ? `あなたは${topTags.map(([tag]) => {
+                        const tagInfo = availableTags.find(t => t.value === tag);
+                        return `${tagInfo?.emoji}${tagInfo?.label || tag}`;
+                      }).join('と')}な作品を好む傾向があります`
+                    : 'データが不足しています';
+                  
+                  return (
+                    <>
+                      {/* 視聴統計サマリー */}
+                      <div className="bg-gradient-to-br from-indigo-600 to-purple-600 rounded-2xl p-5 text-white shadow-lg">
+                        <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                          <span>📊</span>
+                          視聴統計サマリー
+                        </h3>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="bg-white/20 backdrop-blur-sm rounded-lg p-3">
+                            <p className="text-white/80 text-xs mb-1">総視聴作品数</p>
+                            <p className="text-2xl font-black">{totalAnimes}</p>
+                          </div>
+                          <div className="bg-white/20 backdrop-blur-sm rounded-lg p-3">
+                            <p className="text-white/80 text-xs mb-1">総周回数</p>
+                            <p className="text-2xl font-black">{totalRewatchCount}</p>
+                          </div>
+                          <div className="bg-white/20 backdrop-blur-sm rounded-lg p-3">
+                            <p className="text-white/80 text-xs mb-1">平均評価</p>
+                            <p className="text-2xl font-black">
+                              {avgRating > 0 ? `⭐${avgRating.toFixed(1)}` : '⭐0.0'}
+                            </p>
+                          </div>
+                          <div className="bg-white/20 backdrop-blur-sm rounded-lg p-3">
+                            <p className="text-white/80 text-xs mb-1">最も見たクール</p>
+                            <p className="text-lg font-bold truncate">
+                              {mostWatchedSeason ? mostWatchedSeason[0] : '-'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* ジャンル分布 */}
+                      <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md">
+                        <h3 className="font-bold text-lg mb-3 dark:text-white flex items-center gap-2">
+                          <span>🏷️</span>
+                          ジャンル分布
+                        </h3>
+                        {sortedTags.length > 0 ? (
+                          <div className="space-y-3">
+                            {sortedTags.map(([tag, count]) => {
+                              const tagInfo = availableTags.find(t => t.value === tag);
+                              const percentage = (count / maxTagCount) * 100;
+                              const barWidth = Math.round(percentage / 5) * 5; // 5%刻み
+                              
+                              return (
+                                <div key={tag} className="space-y-1">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-sm font-medium dark:text-white">
+                                      {tagInfo?.emoji} {tagInfo?.label || tag}
+                                    </span>
+                                    <span className="text-sm font-bold text-indigo-600 dark:text-indigo-400">
+                                      {Math.round((count / totalAnimes) * 100)}%
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <div className="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
+                                      <div
+                                        className="bg-gradient-to-r from-indigo-500 to-purple-500 h-full transition-all"
+                                        style={{ width: `${barWidth}%` }}
+                                      />
+                                    </div>
+                                    <span className="text-xs text-gray-500 dark:text-gray-400 w-12 text-right">
+                                      {count}本
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-400 text-center py-4">データがありません</p>
+                        )}
+                      </div>
+
+                      {/* 評価分布 */}
+                      <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md">
+                        <h3 className="font-bold text-lg mb-3 dark:text-white flex items-center gap-2">
+                          <span>⭐</span>
+                          評価分布
+                        </h3>
+                        <div className="space-y-3">
+                          {ratingCounts.map(({ rating, count }) => {
+                            const percentage = (count / maxRatingCount) * 100;
+                            const barWidth = Math.round(percentage / 5) * 5;
+                            const ratingLabel = ratingLabels[rating];
+                            
+                            return (
+                              <div key={rating} className="space-y-1">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-sm font-medium dark:text-white">
+                                    ⭐{rating} {ratingLabel?.label || ''}
+                                  </span>
+                                  <span className="text-sm font-bold text-indigo-600 dark:text-indigo-400">
+                                    {count}本
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <div className="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
+                                    <div
+                                      className="bg-gradient-to-r from-yellow-400 to-orange-500 h-full transition-all"
+                                      style={{ width: `${barWidth}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                          <p className="text-xs text-gray-600 dark:text-gray-400 text-center">
+                            {ratingCounts.find(r => r.rating === 5)?.count || 0}本の神作、
+                            {ratingCounts.find(r => r.rating === 4)?.count || 0}本の円盤級、
+                            {ratingCounts.find(r => r.rating === 3)?.count || 0}本の普通作品
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* 視聴ペース */}
+                      <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md">
+                        <h3 className="font-bold text-lg mb-3 dark:text-white flex items-center gap-2">
+                          <span>📅</span>
+                          視聴ペース
+                        </h3>
+                        {seasonAnimeCounts.length > 0 ? (
+                          <div className="space-y-3">
+                            {seasonAnimeCounts.map(({ name, count }) => {
+                              const percentage = (count / maxSeasonCount) * 100;
+                              const barWidth = Math.round(percentage / 5) * 5;
+                              
+                              return (
+                                <div key={name} className="space-y-1">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-sm font-medium dark:text-white">{name}</span>
+                                    <span className="text-sm font-bold text-indigo-600 dark:text-indigo-400">
+                                      {count}本
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <div className="flex-1 bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
+                                      <div
+                                        className="bg-gradient-to-r from-green-400 to-blue-500 h-full transition-all"
+                                        style={{ width: `${barWidth}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-400 text-center py-4">データがありません</p>
+                        )}
+                      </div>
+
+                      {/* あなたの傾向まとめ */}
+                      <div className="bg-gradient-to-br from-pink-500 to-purple-600 rounded-2xl p-5 text-white shadow-lg">
+                        <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
+                          <span>✨</span>
+                          あなたの傾向まとめ
+                        </h3>
+                        <p className="text-sm leading-relaxed">{tendencyText}</p>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+
+            {discoverSubTab === 'dna' && (
+              <div className="space-y-4">
+                <button
+                  onClick={() => setShowDNAModal(true)}
+                  className="w-full py-4 bg-gradient-to-br from-indigo-600 to-purple-600 rounded-2xl text-white font-bold hover:from-indigo-700 hover:to-purple-700 transition-all"
+                >
+                  DNAカードを表示
+                </button>
+              </div>
+            )}
+          </>
         )}
-        
-        {activeTab === 'achievements' && (
-          <AchievementsTab 
-            allAnimes={allAnimes}
-            achievements={achievements}
-          />
+
+        {activeTab === 'collection' && (
+          <>
+            {/* サブタブ */}
+            <div className="flex gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
+              <button
+                onClick={() => setCollectionSubTab('achievements')}
+                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
+                  collectionSubTab === 'achievements'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                実績
+              </button>
+              <button
+                onClick={() => setCollectionSubTab('characters')}
+                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
+                  collectionSubTab === 'characters'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                推しキャラ
+              </button>
+              <button
+                onClick={() => setCollectionSubTab('quotes')}
+                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
+                  collectionSubTab === 'quotes'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                名言
+              </button>
+              <button
+                onClick={() => setCollectionSubTab('lists')}
+                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
+                  collectionSubTab === 'lists'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                布教リスト
+              </button>
+              <button
+                onClick={() => setCollectionSubTab('music')}
+                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
+                  collectionSubTab === 'music'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                主題歌
+              </button>
+            </div>
+
+            {collectionSubTab === 'achievements' && (
+              <AchievementsTab 
+                allAnimes={allAnimes}
+                achievements={achievements}
+              />
+            )}
+
+            {collectionSubTab === 'characters' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl font-bold dark:text-white">推しキャラ</h2>
+                  <button
+                    onClick={() => {
+                      setNewCharacterName('');
+                      setNewCharacterAnimeId(null);
+                      setNewCharacterImage('👤');
+                      setNewCharacterCategory('');
+                      setNewCharacterTags([]);
+                      setNewCustomTag('');
+                      setShowAddCharacterModal(true);
+                    }}
+                    className="text-sm bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors"
+                  >
+                    + 推しを追加
+                  </button>
+                </div>
+                {favoriteCharacters.length > 0 ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    {favoriteCharacters.map((character) => (
+                      <div
+                        key={character.id}
+                        className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md"
+                      >
+                        <div className="text-4xl text-center mb-2">{character.image}</div>
+                        <h3 className="font-bold text-sm dark:text-white text-center mb-1">{character.name}</h3>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 text-center mb-2">{character.animeName}</p>
+                        <div className="flex items-center justify-center mb-2">
+                          <span className="text-xs bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 px-2 py-1 rounded-full">
+                            {character.category}
+                          </span>
+                        </div>
+                        {character.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1 justify-center">
+                            {character.tags.slice(0, 3).map((tag, index) => (
+                              <span
+                                key={index}
+                                className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-1.5 py-0.5 rounded"
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-gray-500 dark:text-gray-400 text-center py-8">推しキャラが登録されていません</p>
+                )}
+              </div>
+            )}
+
+            {collectionSubTab === 'quotes' && (
+              <div className="space-y-4">
+                <h2 className="text-xl font-bold dark:text-white mb-4">名言コレクション</h2>
+                {(() => {
+                  const allQuotes: Array<{ text: string; character?: string; animeTitle: string }> = [];
+                  allAnimes.forEach((anime) => {
+                    anime.quotes?.forEach((quote) => {
+                      allQuotes.push({ ...quote, animeTitle: anime.title });
+                    });
+                  });
+
+                  return allQuotes.length > 0 ? (
+                    <div className="space-y-3">
+                      {allQuotes.map((quote, index) => (
+                        <div
+                          key={index}
+                          className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md border-l-4 border-indigo-500"
+                        >
+                          <p className="text-sm dark:text-white mb-2">「{quote.text}」</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">
+                            {quote.character ? `${quote.character} / ` : ''}{quote.animeTitle}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-gray-500 dark:text-gray-400 text-center py-8">名言が登録されていません</p>
+                  );
+                })()}
+              </div>
+            )}
+
+            {collectionSubTab === 'lists' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl font-bold dark:text-white">布教リスト</h2>
+                  <button
+                    onClick={() => {
+                      setNewListTitle('');
+                      setNewListDescription('');
+                      setSelectedAnimeIds([]);
+                      setEditingList(null);
+                      setShowCreateListModal(true);
+                    }}
+                    className="text-sm bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors"
+                  >
+                    + 新しいリストを作成
+                  </button>
+                </div>
+                {evangelistLists.length > 0 ? (
+                  <div className="space-y-3">
+                    {evangelistLists.map((list) => (
+                      <div
+                        key={list.id}
+                        onClick={() => setSelectedList(list)}
+                        className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl p-4 shadow-md cursor-pointer hover:scale-105 transition-transform"
+                      >
+                        <h3 className="font-bold text-white mb-1">{list.title}</h3>
+                        <p className="text-white/80 text-sm mb-2">{list.description}</p>
+                        <p className="text-white/60 text-xs">{list.animeIds.length}作品</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-gray-500 dark:text-gray-400 text-center py-8">布教リストが作成されていません</p>
+                )}
+              </div>
+            )}
+
+            {collectionSubTab === 'music' && (
+              <MusicTab allAnimes={allAnimes} seasons={seasons} setSeasons={setSeasons} />
+            )}
+          </>
         )}
         
         {activeTab === 'profile' && (
@@ -1853,7 +2505,7 @@ export default function Home() {
                       }`}
                     >
                       <img
-                        src={result.coverImage?.medium || '🎬'}
+                        src={result.coverImage?.large || result.coverImage?.medium || '🎬'}
                         alt={result.title?.native || result.title?.romaji}
                         className="w-16 h-24 object-cover rounded"
                         onError={(e) => {
@@ -1906,27 +2558,55 @@ export default function Home() {
               </div>
             )}
 
-            {/* アイコン選択 */}
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                アイコン
-              </label>
-              <div className="grid grid-cols-8 gap-2">
-                {['🎬', '🎭', '🎪', '🎨', '🎯', '🎮', '🎸', '🎵', '🎹', '🎤', '🎧', '🎺', '🎷', '🥁', '🎲', '🎰', '🎃', '🧝', '👻', '🤖', '👽', '🦄', '🐉', '🦁'].map((icon) => (
-                  <button
-                    key={icon}
-                    onClick={() => setNewAnimeIcon(icon)}
-                    className={`text-3xl p-2 rounded-lg transition-all ${
-                      newAnimeIcon === icon
-                        ? 'bg-indigo-100 dark:bg-indigo-900 ring-2 ring-indigo-500'
-                        : 'bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600'
-                    }`}
-                  >
-                    {icon}
-                  </button>
-                ))}
+            {/* アイコン選択（画像URLが設定されていない場合のみ表示） */}
+            {!(newAnimeIcon && (newAnimeIcon.startsWith('http://') || newAnimeIcon.startsWith('https://'))) && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  アイコン
+                </label>
+                <div className="grid grid-cols-8 gap-2">
+                  {['🎬', '🎭', '🎪', '🎨', '🎯', '🎮', '🎸', '🎵', '🎹', '🎤', '🎧', '🎺', '🎷', '🥁', '🎲', '🎰', '🎃', '🧝', '👻', '🤖', '👽', '🦄', '🐉', '🦁'].map((icon) => (
+                    <button
+                      key={icon}
+                      onClick={() => setNewAnimeIcon(icon)}
+                      className={`text-3xl p-2 rounded-lg transition-all ${
+                        newAnimeIcon === icon
+                          ? 'bg-indigo-100 dark:bg-indigo-900 ring-2 ring-indigo-500'
+                          : 'bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600'
+                      }`}
+                    >
+                      {icon}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
+
+            {/* 画像プレビュー（画像URLが設定されている場合） */}
+            {newAnimeIcon && (newAnimeIcon.startsWith('http://') || newAnimeIcon.startsWith('https://')) && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  画像プレビュー
+                </label>
+                <div className="relative aspect-[3/4] w-32 mx-auto rounded-lg overflow-hidden border-2 border-indigo-300 dark:border-indigo-600">
+                  <img
+                    src={newAnimeIcon}
+                    alt="アニメ画像"
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="128" height="171"><rect fill="%23ddd" width="128" height="171"/></svg>';
+                    }}
+                  />
+                  <button
+                    onClick={() => setNewAnimeIcon('🎬')}
+                    className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-red-600 transition-colors"
+                    title="画像を削除"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* 評価選択 */}
             <div className="mb-6">
@@ -1988,6 +2668,13 @@ export default function Home() {
                       });
                     }
                     
+                    // シリーズ名を自動判定（検索結果から）
+                    let seriesName: string | undefined = undefined;
+                    if (selectedSearchResult) {
+                      const title = selectedSearchResult.title?.native || selectedSearchResult.title?.romaji || '';
+                      seriesName = extractSeriesName(title);
+                    }
+                    
                     const newAnime: Anime = {
                       id: maxId + 1,
                       title: newAnimeTitle.trim(),
@@ -1996,6 +2683,7 @@ export default function Home() {
                       watched: true,
                       rewatchCount: 1,
                       tags: tags.length > 0 ? tags : undefined,
+                      seriesName: seriesName,
                     };
                     
                     // シーズン名を決定（検索結果から取得、または既存のシーズン）
@@ -2384,6 +3072,89 @@ export default function Home() {
                   );
                 })}
               </div>
+            </div>
+
+            {/* シリーズ名編集 */}
+            <div className="mb-4">
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2 text-center font-medium">シリーズ名</p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={selectedAnime.seriesName || ''}
+                  onChange={(e) => {
+                    const newSeriesName = e.target.value.trim() || undefined;
+                    setSelectedAnime({ ...selectedAnime, seriesName: newSeriesName });
+                  }}
+                  onBlur={async () => {
+                    const newSeriesName = selectedAnime.seriesName?.trim() || undefined;
+                    const updatedSeasons = seasons.map(season => ({
+                      ...season,
+                      animes: season.animes.map((anime) =>
+                        anime.id === selectedAnime.id
+                          ? { ...anime, seriesName: newSeriesName }
+                          : anime
+                      ),
+                    }));
+                    
+                    // Supabaseを更新（ログイン時のみ）
+                    if (user) {
+                      try {
+                        const { error } = await supabase
+                          .from('animes')
+                          .update({ series_name: newSeriesName })
+                          .eq('id', selectedAnime.id)
+                          .eq('user_id', user.id);
+                        
+                        if (error) throw error;
+                      } catch (error) {
+                        console.error('Failed to update anime series name in Supabase:', error);
+                      }
+                    }
+                    
+                    setSeasons(updatedSeasons);
+                  }}
+                  placeholder="シリーズ名を入力（任意）"
+                  className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white text-sm"
+                />
+                {selectedAnime.seriesName && (
+                  <button
+                    onClick={async () => {
+                      const updatedSeasons = seasons.map(season => ({
+                        ...season,
+                        animes: season.animes.map((anime) =>
+                          anime.id === selectedAnime.id
+                            ? { ...anime, seriesName: undefined }
+                            : anime
+                        ),
+                      }));
+                      
+                      // Supabaseを更新（ログイン時のみ）
+                      if (user) {
+                        try {
+                          const { error } = await supabase
+                            .from('animes')
+                            .update({ series_name: null })
+                            .eq('id', selectedAnime.id)
+                            .eq('user_id', user.id);
+                          
+                          if (error) throw error;
+                        } catch (error) {
+                          console.error('Failed to remove anime series name in Supabase:', error);
+                        }
+                      }
+                      
+                      setSeasons(updatedSeasons);
+                      setSelectedAnime({ ...selectedAnime, seriesName: undefined });
+                    }}
+                    className="px-3 py-2 bg-red-500 text-white rounded-xl text-sm font-medium hover:bg-red-600 transition-colors"
+                  >
+                    削除
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-gray-400 dark:text-gray-500 text-center mt-1">
+                同じシリーズ名を持つアニメがグループ化されます
+              </p>
             </div>
 
             {/* 主題歌 */}
@@ -2936,31 +3707,31 @@ export default function Home() {
             </button>
             
             <button
-              onClick={() => setActiveTab('music')}
+              onClick={() => setActiveTab('discover')}
               className={`flex flex-col items-center justify-center py-2 px-4 rounded-lg transition-all ${
-                activeTab === 'music'
+                activeTab === 'discover'
                   ? 'text-indigo-600 dark:text-indigo-400'
                   : 'text-gray-500 dark:text-gray-400'
               }`}
             >
-              <span className={`text-2xl transition-transform ${activeTab === 'music' ? 'scale-110' : 'scale-100'}`}>
-                🎵
+              <span className={`text-2xl transition-transform ${activeTab === 'discover' ? 'scale-110' : 'scale-100'}`}>
+                📊
               </span>
-              <span className="text-xs font-medium mt-1">主題歌</span>
+              <span className="text-xs font-medium mt-1">発見</span>
             </button>
             
             <button
-              onClick={() => setActiveTab('achievements')}
+              onClick={() => setActiveTab('collection')}
               className={`flex flex-col items-center justify-center py-2 px-4 rounded-lg transition-all ${
-                activeTab === 'achievements'
+                activeTab === 'collection'
                   ? 'text-indigo-600 dark:text-indigo-400'
                   : 'text-gray-500 dark:text-gray-400'
               }`}
             >
-              <span className={`text-2xl transition-transform ${activeTab === 'achievements' ? 'scale-110' : 'scale-100'}`}>
+              <span className={`text-2xl transition-transform ${activeTab === 'collection' ? 'scale-110' : 'scale-100'}`}>
                 🏆
               </span>
-              <span className="text-xs font-medium mt-1">実績</span>
+              <span className="text-xs font-medium mt-1">コレクション</span>
             </button>
             
             <button
@@ -2974,7 +3745,7 @@ export default function Home() {
               <span className={`text-2xl transition-transform ${activeTab === 'profile' ? 'scale-110' : 'scale-100'}`}>
                 👤
               </span>
-              <span className="text-xs font-medium mt-1">マイページ</span>
+              <span className="text-xs font-medium mt-1">マイ</span>
             </button>
           </div>
         </div>
