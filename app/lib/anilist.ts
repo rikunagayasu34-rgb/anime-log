@@ -18,6 +18,11 @@ export async function searchAnime(query: string) {
             seasonYear
             season
             genres
+            studios {
+              nodes {
+                name
+              }
+            }
           }
         }
       }
@@ -33,5 +38,66 @@ export async function searchAnime(query: string) {
 
   const data = await response.json();
   return data.data.Page.media;
+}
+
+// クール検索関数
+export async function searchAnimeBySeason(
+  season: 'SPRING' | 'SUMMER' | 'FALL' | 'WINTER',
+  seasonYear: number,
+  page: number = 1,
+  perPage: number = 50
+) {
+  const graphqlQuery = {
+    query: `
+      query ($season: MediaSeason, $seasonYear: Int, $page: Int, $perPage: Int) {
+        Page(page: $page, perPage: $perPage) {
+          pageInfo {
+            total
+            currentPage
+            hasNextPage
+          }
+          media(season: $season, seasonYear: $seasonYear, type: ANIME, sort: POPULARITY_DESC) {
+            id
+            title {
+              native
+              romaji
+            }
+            coverImage {
+              medium
+              large
+            }
+            seasonYear
+            season
+            genres
+            format
+            episodes
+            studios {
+              nodes {
+                name
+              }
+            }
+          }
+        }
+      }
+    `,
+    variables: { 
+      season,
+      seasonYear,
+      page,
+      perPage
+    }
+  };
+
+  const response = await fetch(ANILIST_API, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(graphqlQuery)
+  });
+
+  const data = await response.json();
+  return {
+    media: data.data.Page.media,
+    pageInfo: data.data.Page.pageInfo
+  };
 }
 

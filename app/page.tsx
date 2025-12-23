@@ -3,12 +3,32 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from './lib/supabase';
 import type { User } from '@supabase/supabase-js';
-import { searchAnime } from './lib/anilist';
+import { searchAnime, searchAnimeBySeason } from './lib/anilist';
 
 // シーズンの型定義
 type Season = {
   name: string;
   animes: Anime[];
+};
+
+// 感想の型定義
+type Review = {
+  id: string;
+  animeId: number;
+  userId: string;
+  userName: string;
+  userIcon: string;
+  type: 'overall' | 'episode';
+  episodeNumber?: number;
+  content: string;
+  containsSpoiler: boolean;
+  spoilerHidden: boolean;
+  likes: number;
+  helpfulCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+  userLiked?: boolean; // 現在のユーザーがいいねしたか
+  userHelpful?: boolean; // 現在のユーザーが役に立ったを押したか
 };
 
 // アニメの型定義
@@ -21,11 +41,13 @@ type Anime = {
   rewatchCount?: number;
   tags?: string[];
   seriesName?: string; // シリーズ名（任意）
+  studios?: string[]; // 制作会社（任意）
   songs?: {
     op?: { title: string; artist: string; rating: number; isFavorite: boolean };
     ed?: { title: string; artist: string; rating: number; isFavorite: boolean };
   };
   quotes?: { text: string; character?: string }[];
+  reviews?: Review[]; // 感想一覧（オプション）
 };
 
 // タグ一覧
@@ -106,6 +128,13 @@ const achievements: Achievement[] = [
   { id: 'rewatch3', name: '反復横跳び', desc: '1作品を3周', icon: '🔄', rarity: 'common', condition: 3 },
   { id: 'rewatch10', name: '周回の鬼', desc: '1作品を10周', icon: '🌀', rarity: 'legendary', condition: 10 },
   { id: 'godtaste', name: '神の舌', desc: '⭐5を10作品つける', icon: '👑', rarity: 'rare', condition: 10 },
+  // 感想関連実績
+  { id: 'review1', name: '初めての感想', desc: '初めて感想を投稿', icon: '✍️', rarity: 'common', condition: 1 },
+  { id: 'review10', name: '感想マスター', desc: '10件の感想を投稿', icon: '📝', rarity: 'rare', condition: 10 },
+  { id: 'review50', name: '感想の達人', desc: '50件の感想を投稿', icon: '📚', rarity: 'epic', condition: 50 },
+  { id: 'liked10', name: '人気の感想', desc: '感想に10いいね獲得', icon: '❤️', rarity: 'rare', condition: 10 },
+  { id: 'liked50', name: '感想のスター', desc: '感想に50いいね獲得', icon: '⭐', rarity: 'epic', condition: 50 },
+  { id: 'helpful10', name: '役に立つ感想', desc: '感想に10「役に立った」獲得', icon: '👍', rarity: 'rare', condition: 10 },
 ];
 
 // サンプルデータ
@@ -180,55 +209,61 @@ const sampleSeasons: Season[] = [
 // 評価ラベル
 const ratingLabels: { [key: number]: { label: string; emoji: string } } = {
   5: { label: '神作', emoji: '🏆' },
-  4: { label: '円盤級', emoji: '💿' },
+  4: { label: '名作', emoji: '⭐' },
   3: { label: '良作', emoji: '😊' },
   2: { label: '完走', emoji: '🏃' },
   1: { label: '虚無', emoji: '😇' },
 };
 
+// ジャンル翻訳マップ
+const genreTranslation: { [key: string]: string } = {
+  'Action': 'アクション',
+  'Adventure': 'アドベンチャー',
+  'Comedy': 'コメディ',
+  'Drama': 'ドラマ',
+  'Ecchi': 'エッチ',
+  'Fantasy': 'ファンタジー',
+  'Horror': 'ホラー',
+  'Mahou Shoujo': '魔法少女',
+  'Mecha': 'メカ',
+  'Music': '音楽',
+  'Mystery': 'ミステリー',
+  'Psychological': 'サイコ',
+  'Romance': 'ロマンス',
+  'Sci-Fi': 'SF',
+  'Slice of Life': '日常',
+  'Sports': 'スポーツ',
+  'Supernatural': '超自然',
+  'Thriller': 'スリラー',
+};
+
+// ジャンルを日本語に変換
+const translateGenre = (genre: string): string => {
+  return genreTranslation[genre] || genre;
+};
+
 // マイページタブコンポーネント
 function ProfileTab({
   allAnimes,
+  seasons,
   userName,
   userIcon,
   averageRating,
   isDarkMode,
   setIsDarkMode,
   setShowSettings,
-  evangelistLists,
-  setEvangelistLists,
-  setSelectedAnime,
-  favoriteCharacters,
-  setFavoriteCharacters,
   handleLogout,
 }: {
   allAnimes: Anime[];
+  seasons: Season[];
   userName: string;
   userIcon: string;
   averageRating: number;
   isDarkMode: boolean;
   setIsDarkMode: (value: boolean) => void;
   setShowSettings: (value: boolean) => void;
-  evangelistLists: EvangelistList[];
-  setEvangelistLists: (lists: EvangelistList[]) => void;
-  setSelectedAnime: (anime: Anime | null) => void;
-  favoriteCharacters: FavoriteCharacter[];
-  setFavoriteCharacters: (characters: FavoriteCharacter[]) => void;
   handleLogout: () => void;
 }) {
-  const [showCreateListModal, setShowCreateListModal] = useState(false);
-  const [selectedList, setSelectedList] = useState<EvangelistList | null>(null);
-  const [newListTitle, setNewListTitle] = useState('');
-  const [newListDescription, setNewListDescription] = useState('');
-  const [selectedAnimeIds, setSelectedAnimeIds] = useState<number[]>([]);
-  const [editingList, setEditingList] = useState<EvangelistList | null>(null);
-  const [showAddCharacterModal, setShowAddCharacterModal] = useState(false);
-  const [newCharacterName, setNewCharacterName] = useState('');
-  const [newCharacterAnimeId, setNewCharacterAnimeId] = useState<number | null>(null);
-  const [newCharacterImage, setNewCharacterImage] = useState('👤');
-  const [newCharacterCategory, setNewCharacterCategory] = useState('');
-  const [newCharacterTags, setNewCharacterTags] = useState<string[]>([]);
-  const [newCustomTag, setNewCustomTag] = useState('');
   const watchedCount = allAnimes.filter(a => a.watched).length;
   const totalRewatchCount = allAnimes.reduce((sum, a) => sum + (a.rewatchCount ?? 1), 0);
   
@@ -244,12 +279,22 @@ function ProfileTab({
     .slice(0, 5);
   const mostPopularTag = sortedTags[0] ? availableTags.find(t => t.value === sortedTags[0][0]) : null;
   
-  // ダミーの制作会社データ
-  const studios = [
-    { name: 'MAPPA', count: 3 },
-    { name: '京アニ', count: 2 },
-    { name: 'ufotable', count: 1 },
-  ];
+  // 制作会社を実際のアニメデータから集計
+  const allAnimesForProfile = seasons.flatMap(season => season.animes);
+  const studioCounts: { [key: string]: number } = {};
+  allAnimesForProfile.forEach(anime => {
+    if (anime.studios && Array.isArray(anime.studios)) {
+      anime.studios.forEach(studio => {
+        if (studio) {
+          studioCounts[studio] = (studioCounts[studio] || 0) + 1;
+        }
+      });
+    }
+  });
+  const studios = Object.entries(studioCounts)
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10); // 上位10社
   
   return (
     <div className="space-y-6">
@@ -269,32 +314,187 @@ function ProfileTab({
         </div>
       </div>
       
-      {/* 統計セクション */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md">
-        <h3 className="font-bold text-lg mb-3 dark:text-white">統計</h3>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">視聴作品数</p>
-            <p className="text-2xl font-black dark:text-white">{watchedCount}</p>
-          </div>
-          <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">累計周回数</p>
-            <p className="text-2xl font-black dark:text-white">{totalRewatchCount}</p>
-          </div>
-          <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">平均評価</p>
-            <p className="text-2xl font-black dark:text-white">
-              {averageRating > 0 ? `⭐${averageRating.toFixed(1)}` : '⭐0.0'}
-            </p>
-          </div>
-          <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3">
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">一番多いタグ</p>
-            <p className="text-lg font-bold dark:text-white">
-              {mostPopularTag ? `${mostPopularTag.emoji} ${mostPopularTag.label}` : '-'}
-            </p>
-          </div>
-        </div>
-      </div>
+      {/* DNAカード */}
+      {(() => {
+        const allAnimes = seasons.flatMap(s => s.animes);
+        const count = allAnimes.filter(a => a.watched).length;
+        const totalRewatchCount = allAnimes.reduce((sum, a) => sum + (a.rewatchCount ?? 1), 0);
+        const ratings = allAnimes.filter(a => a.rating > 0).map(a => a.rating);
+        const averageRating = ratings.length > 0 ? ratings.reduce((sum, r) => sum + r, 0) / ratings.length : 0;
+        
+        // オタクタイプの判定
+        const tagCounts: { [key: string]: number } = {};
+        allAnimes.forEach(anime => {
+          anime.tags?.forEach(tag => {
+            tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+          });
+        });
+        
+        let otakuType = '🎵 音響派'; // デフォルト
+        if (tagCounts['考察'] && tagCounts['考察'] >= 3) {
+          otakuType = '🔍 考察厨';
+        } else if (tagCounts['泣ける'] && tagCounts['泣ける'] >= 3) {
+          otakuType = '😭 感情移入型';
+        } else if (tagCounts['作画神'] && tagCounts['作画神'] >= 3) {
+          otakuType = '🎨 作画厨';
+        } else if (tagCounts['音楽最高'] && tagCounts['音楽最高'] >= 3) {
+          otakuType = '🎵 音響派';
+        } else if (tagCounts['キャラ萌え'] && tagCounts['キャラ萌え'] >= 3) {
+          otakuType = '💕 キャラオタ';
+        }
+        
+        // お気に入り曲
+        const favoriteSongs = allAnimes
+          .flatMap(anime => [
+            anime.songs?.op?.isFavorite ? anime.songs.op : null,
+            anime.songs?.ed?.isFavorite ? anime.songs.ed : null,
+          ])
+          .filter(song => song !== null);
+        
+        return (
+          <>
+            <div className="bg-gradient-to-br from-purple-500 via-pink-500 to-purple-600 rounded-2xl p-6 shadow-lg">
+              {/* タイトル */}
+              <div className="text-center mb-4">
+                <h2 className="text-white text-xl font-black mb-1">MY ANIME DNA 2024</h2>
+                <span className="text-2xl">✨</span>
+              </div>
+              
+              {/* オタクタイプ */}
+              <div className="text-center mb-6">
+                <p className="text-white text-4xl font-black">
+                  {otakuType}
+                </p>
+              </div>
+              
+              {/* 統計 */}
+              <div className="grid grid-cols-3 gap-3 mb-6">
+                <div className="text-center bg-white/20 backdrop-blur-sm rounded-lg py-2">
+                  <p className="text-white text-2xl font-black">{count}</p>
+                  <p className="text-white/80 text-xs mt-1">作品</p>
+                </div>
+                <div className="text-center bg-white/20 backdrop-blur-sm rounded-lg py-2">
+                  <p className="text-white text-2xl font-black">{totalRewatchCount}</p>
+                  <p className="text-white/80 text-xs mt-1">周</p>
+                </div>
+                <div className="text-center bg-white/20 backdrop-blur-sm rounded-lg py-2">
+                  <p className="text-white text-2xl font-black">
+                    {averageRating > 0 ? `${averageRating.toFixed(1)}` : '0.0'}
+                  </p>
+                  <p className="text-white/80 text-xs mt-1">平均</p>
+                </div>
+              </div>
+              
+              {/* 代表作 */}
+              <div className="mb-4">
+                <p className="text-white/90 text-xs font-medium mb-2 text-center">代表作</p>
+                <div className="flex justify-center gap-3">
+                  {allAnimes
+                    .filter(a => a.rating > 0)
+                    .sort((a, b) => b.rating - a.rating)
+                    .slice(0, 3)
+                    .map((anime, index) => {
+                      const isImageUrl = anime.image && (anime.image.startsWith('http://') || anime.image.startsWith('https://'));
+                      return (
+                        <div
+                          key={anime.id}
+                          className="bg-white/20 backdrop-blur-sm rounded-lg w-16 h-20 flex items-center justify-center overflow-hidden relative"
+                        >
+                          {isImageUrl ? (
+                            <img
+                              src={anime.image}
+                              alt={anime.title}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).style.display = 'none';
+                                const parent = (e.target as HTMLImageElement).parentElement;
+                                if (parent) {
+                                  parent.innerHTML = '<span class="text-3xl">🎬</span>';
+                                }
+                              }}
+                            />
+                          ) : (
+                            <span className="text-3xl">{anime.image || '🎬'}</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+              
+              {/* お気に入り曲 */}
+              {favoriteSongs.length > 0 && (
+                <div className="mb-4">
+                  <p className="text-white/90 text-xs font-medium mb-2 text-center">お気に入り曲</p>
+                  <div className="bg-white/20 backdrop-blur-sm rounded-lg p-3">
+                    <p className="text-white text-sm font-bold text-center">
+                      {favoriteSongs[0].title}
+                    </p>
+                    <p className="text-white/80 text-xs text-center mt-1">
+                      {favoriteSongs[0].artist}
+                    </p>
+                  </div>
+                </div>
+              )}
+              
+              {/* ロゴ */}
+              <div className="text-center pt-2 border-t border-white/20">
+                <p className="text-white/80 text-xs font-bold">アニメログ</p>
+              </div>
+            </div>
+            
+            {/* ボタン */}
+            <div className="flex gap-3">
+              <button
+                onClick={async () => {
+                  // html2canvasで画像保存
+                  try {
+                    const html2canvas = (await import('html2canvas')).default;
+                    const cardElement = document.querySelector('.bg-gradient-to-br.from-purple-500');
+                    if (cardElement) {
+                      const canvas = await html2canvas(cardElement as HTMLElement);
+                      const url = canvas.toDataURL('image/png');
+                      const link = document.createElement('a');
+                      link.download = 'anime-dna-card.png';
+                      link.href = url;
+                      link.click();
+                    }
+                  } catch (error) {
+                    console.error('Failed to save image:', error);
+                  }
+                }}
+                className="flex-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 py-3 rounded-xl font-bold hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors flex items-center justify-center gap-2"
+              >
+                <span>📥</span>
+                <span>画像を保存</span>
+              </button>
+              <button
+                onClick={async () => {
+                  // Web Share API
+                  if (navigator.share) {
+                    try {
+                      await navigator.share({
+                        title: 'MY ANIME DNA 2024',
+                        text: `私のアニメDNA: ${otakuType}`,
+                      });
+                    } catch (error) {
+                      console.error('Share failed:', error);
+                    }
+                  } else {
+                    // フォールバック: URLをクリップボードにコピー
+                    await navigator.clipboard.writeText(window.location.href);
+                    alert('URLをクリップボードにコピーしました');
+                  }
+                }}
+                className="flex-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 py-3 rounded-xl font-bold hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors flex items-center justify-center gap-2"
+              >
+                <span>📤</span>
+                <span>シェア</span>
+              </button>
+            </div>
+          </>
+        );
+      })()}
       
       {/* お気に入りジャンル */}
       {sortedTags.length > 0 && (
@@ -328,153 +528,6 @@ function ProfileTab({
         </div>
       )}
       
-      {/* よく見る制作会社 */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md">
-        <h3 className="font-bold text-lg mb-3 dark:text-white">よく見る制作会社</h3>
-        <div className="space-y-2">
-          {studios.map((studio) => (
-            <div key={studio.name} className="flex justify-between items-center py-2 border-b dark:border-gray-700 last:border-0">
-              <span className="font-medium dark:text-white">{studio.name}</span>
-              <span className="text-gray-500 dark:text-gray-400">{studio.count}作品</span>
-            </div>
-          ))}
-        </div>
-      </div>
-      
-      {/* 名言コレクション */}
-      {(() => {
-        const allQuotes: Array<{ text: string; character?: string; animeTitle: string }> = [];
-        allAnimes.forEach((anime) => {
-          anime.quotes?.forEach((quote) => {
-            allQuotes.push({ ...quote, animeTitle: anime.title });
-          });
-        });
-
-        return allQuotes.length > 0 ? (
-          <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md">
-            <h3 className="font-bold text-lg mb-3 dark:text-white">名言コレクション</h3>
-            <div className="space-y-3">
-              {allQuotes.map((quote, index) => (
-                <div
-                  key={index}
-                  className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 border-l-4 border-indigo-500"
-                >
-                  <p className="text-sm dark:text-white mb-2">「{quote.text}」</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {quote.character ? `${quote.character} / ` : ''}{quote.animeTitle}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null;
-      })()}
-
-      {/* 推しキャラ */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-bold text-lg dark:text-white">推しキャラ</h3>
-          <button
-            onClick={() => {
-              setNewCharacterName('');
-              setNewCharacterAnimeId(null);
-              setNewCharacterImage('👤');
-              setNewCharacterCategory('');
-              setNewCharacterTags([]);
-              setNewCustomTag('');
-              setShowAddCharacterModal(true);
-            }}
-            className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 transition-colors"
-          >
-            + 推しを追加
-          </button>
-        </div>
-        
-        {favoriteCharacters.length > 0 ? (
-          <div className="space-y-4">
-            {characterCategories.map((category) => {
-              const categoryCharacters = favoriteCharacters.filter(char => char.category === category.value);
-              if (categoryCharacters.length === 0) return null;
-              
-              return (
-                <div key={category.value} className="mb-4">
-                  <h4 className="text-sm font-bold text-gray-600 dark:text-gray-400 mb-2">
-                    {category.emoji} {category.label}
-                  </h4>
-                  <div className="grid grid-cols-2 gap-3">
-                    {categoryCharacters.map((character) => (
-                      <div
-                        key={character.id}
-                        className="bg-gradient-to-br from-pink-100 to-purple-100 dark:from-pink-900/30 dark:to-purple-900/30 rounded-xl p-3"
-                      >
-                        <div className="text-center mb-2">
-                          <div className="text-4xl mb-1">{character.image}</div>
-                          <p className="font-bold text-sm dark:text-white">{character.name}</p>
-                          <p className="text-xs text-gray-600 dark:text-gray-400">{character.animeName}</p>
-                        </div>
-                        <div className="flex flex-wrap gap-1 justify-center mt-2">
-                          {character.tags.map((tag, index) => (
-                            <span
-                              key={index}
-                              className="text-xs bg-white/50 dark:bg-gray-700/50 px-2 py-0.5 rounded-full text-gray-700 dark:text-gray-300"
-                            >
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">
-            推しキャラが登録されていません
-          </p>
-        )}
-      </div>
-
-      {/* 布教リスト */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-bold text-lg dark:text-white">布教リスト</h3>
-          <button
-            onClick={() => {
-              setNewListTitle('');
-              setNewListDescription('');
-              setSelectedAnimeIds([]);
-              setEditingList(null);
-              setShowCreateListModal(true);
-            }}
-            className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 transition-colors"
-          >
-            + 新しいリストを作成
-          </button>
-        </div>
-        
-        {evangelistLists.length > 0 ? (
-          <div className="space-y-3">
-            {evangelistLists.map((list) => (
-              <button
-                key={list.id}
-                onClick={() => setSelectedList(list)}
-                className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl p-4 text-white text-left shadow-md hover:shadow-lg transition-all"
-              >
-                <h4 className="font-bold mb-1">{list.title}</h4>
-                <p className="text-sm text-white/80 mb-2">{list.description}</p>
-                <p className="text-xs text-white/70">{list.animeIds.length}作品</p>
-              </button>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">
-            リストがありません
-          </p>
-        )}
-      </div>
-
       {/* 設定 */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md">
         <h3 className="font-bold text-lg mb-3 dark:text-white">設定</h3>
@@ -514,422 +567,59 @@ function ProfileTab({
         </div>
       </div>
 
-      {/* リスト作成・編集モーダル */}
-      {showCreateListModal && (
-        <div 
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-          onClick={() => setShowCreateListModal(false)}
-        >
-          <div 
-            className="bg-white dark:bg-gray-800 rounded-2xl max-w-sm w-full p-6 max-h-[90vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-xl font-bold mb-4 dark:text-white">
-              {editingList ? 'リストを編集' : '新しいリストを作成'}
-            </h2>
-            
-            {/* タイトル入力 */}
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                タイトル
-              </label>
-              <input
-                type="text"
-                value={newListTitle}
-                onChange={(e) => setNewListTitle(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
-                placeholder="初心者におすすめ5選"
-              />
-            </div>
-
-            {/* 説明入力 */}
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                説明
-              </label>
-              <textarea
-                value={newListDescription}
-                onChange={(e) => setNewListDescription(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
-                placeholder="アニメ入門にぴったり"
-                rows={3}
-              />
-            </div>
-
-            {/* アニメ選択 */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                アニメを選択
-              </label>
-              <div className="space-y-2 max-h-48 overflow-y-auto">
-                {allAnimes.map((anime) => (
-                  <label
-                    key={anime.id}
-                    className="flex items-center gap-2 p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg cursor-pointer"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedAnimeIds.includes(anime.id)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSelectedAnimeIds([...selectedAnimeIds, anime.id]);
-                        } else {
-                          setSelectedAnimeIds(selectedAnimeIds.filter(id => id !== anime.id));
-                        }
-                      }}
-                      className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
-                    />
-                    <span className="text-sm dark:text-white">{anime.title}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  setShowCreateListModal(false);
-                  setNewListTitle('');
-                  setNewListDescription('');
-                  setSelectedAnimeIds([]);
-                  setEditingList(null);
-                }}
-                className="flex-1 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 py-3 rounded-xl font-bold hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-              >
-                キャンセル
-              </button>
-              <button
-                onClick={() => {
-                  if (newListTitle.trim() && selectedAnimeIds.length > 0) {
-                    if (editingList) {
-                      // 編集
-                      const updatedLists = evangelistLists.map(list =>
-                        list.id === editingList.id
-                          ? {
-                              ...list,
-                              title: newListTitle.trim(),
-                              description: newListDescription.trim(),
-                              animeIds: selectedAnimeIds,
-                            }
-                          : list
-                      );
-                      setEvangelistLists(updatedLists);
-                    } else {
-                      // 新規作成
-                      const newList: EvangelistList = {
-                        id: Date.now(),
-                        title: newListTitle.trim(),
-                        description: newListDescription.trim(),
-                        animeIds: selectedAnimeIds,
-                        createdAt: new Date(),
-                      };
-                      setEvangelistLists([...evangelistLists, newList]);
-                    }
-                    setShowCreateListModal(false);
-                    setNewListTitle('');
-                    setNewListDescription('');
-                    setSelectedAnimeIds([]);
-                    setEditingList(null);
-                  }
-                }}
-                className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors"
-              >
-                {editingList ? '更新' : '作成'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* リスト詳細モーダル */}
-      {selectedList && (
-        <div 
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-          onClick={() => setSelectedList(null)}
-        >
-          <div 
-            className="bg-white dark:bg-gray-800 rounded-2xl max-w-sm w-full p-6 max-h-[90vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-xl font-bold mb-2 dark:text-white">{selectedList.title}</h2>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{selectedList.description}</p>
-            
-            {/* アニメ一覧 */}
-            <div className="mb-4">
-              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                {selectedList.animeIds.length}作品
-              </h3>
-              <div className="grid grid-cols-3 gap-3">
-                {selectedList.animeIds.map((animeId) => {
-                  const anime = allAnimes.find(a => a.id === animeId);
-                  if (!anime) return null;
-                  return (
-                    <div
-                      key={animeId}
-                      onClick={() => {
-                        setSelectedAnime(anime);
-                        setSelectedList(null);
-                      }}
-                      className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl p-3 text-white text-center cursor-pointer hover:scale-105 transition-transform"
-                    >
-                      <div className="text-3xl mb-1">{anime.image}</div>
-                      <p className="text-xs font-bold truncate">{anime.title}</p>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => {}}
-                className="flex-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 py-3 rounded-xl font-bold hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
-              >
-                📤 シェア
-              </button>
-              <button
-                onClick={() => {
-                  setEditingList(selectedList);
-                  setNewListTitle(selectedList.title);
-                  setNewListDescription(selectedList.description);
-                  setSelectedAnimeIds(selectedList.animeIds);
-                  setSelectedList(null);
-                  setShowCreateListModal(true);
-                }}
-                className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors"
-              >
-                編集
-              </button>
-              <button
-                onClick={() => {
-                  setEvangelistLists(evangelistLists.filter(list => list.id !== selectedList.id));
-                  setSelectedList(null);
-                }}
-                className="flex-1 bg-red-500 text-white py-3 rounded-xl font-bold hover:bg-red-600 transition-colors"
-              >
-                削除
-              </button>
-            </div>
-            
-            <button
-              onClick={() => setSelectedList(null)}
-              className="w-full mt-3 text-gray-500 dark:text-gray-400 text-sm"
-            >
-              閉じる
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* 推しキャラ追加モーダル */}
-      {showAddCharacterModal && (
-        <div 
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-          onClick={() => setShowAddCharacterModal(false)}
-        >
-          <div 
-            className="bg-white dark:bg-gray-800 rounded-2xl max-w-sm w-full p-6 max-h-[90vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-xl font-bold mb-4 dark:text-white">推しを追加</h2>
-            
-            {/* キャラ名入力 */}
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                キャラ名
-              </label>
-              <input
-                type="text"
-                value={newCharacterName}
-                onChange={(e) => setNewCharacterName(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
-                placeholder="キャラクター名"
-              />
-            </div>
-
-            {/* アニメ選択 */}
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                アニメ
-              </label>
-              <select
-                value={newCharacterAnimeId || ''}
-                onChange={(e) => setNewCharacterAnimeId(Number(e.target.value))}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
-              >
-                <option value="">選択してください</option>
-                {allAnimes.map((anime) => (
-                  <option key={anime.id} value={anime.id}>
-                    {anime.title}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* アイコン選択 */}
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                アイコン
-              </label>
-              <div className="grid grid-cols-8 gap-2">
-                {['👤', '👻', '🧝', '🎸', '👑', '🦄', '🌟', '💫', '⚡', '🔥', '💕', '❤️', '🎭', '🛡️', '😇', '🤡', '💀', '🎪', '🎨', '🎯', '🎬', '🎮'].map((icon) => (
-                  <button
-                    key={icon}
-                    onClick={() => setNewCharacterImage(icon)}
-                    className={`text-3xl p-2 rounded-lg transition-all ${
-                      newCharacterImage === icon
-                        ? 'bg-indigo-100 dark:bg-indigo-900 ring-2 ring-indigo-500'
-                        : 'bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600'
-                    }`}
-                  >
-                    {icon}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* カテゴリ選択 */}
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                カテゴリ
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                {characterCategories.map((category) => (
-                  <button
-                    key={category.value}
-                    onClick={() => setNewCharacterCategory(category.value)}
-                    className={`p-2 rounded-lg text-sm font-medium transition-all ${
-                      newCharacterCategory === category.value
-                        ? 'bg-indigo-600 text-white'
-                        : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                    }`}
-                  >
-                    {category.emoji} {category.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* タグ選択 */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                タグ
-              </label>
-              <div className="flex flex-wrap gap-2 mb-2">
-                {characterPresetTags.map((tag) => (
-                  <button
-                    key={tag}
-                    onClick={() => {
-                      if (newCharacterTags.includes(tag)) {
-                        setNewCharacterTags(newCharacterTags.filter(t => t !== tag));
-                      } else {
-                        setNewCharacterTags([...newCharacterTags, tag]);
-                      }
-                    }}
-                    className={`px-3 py-1 rounded-full text-sm transition-all ${
-                      newCharacterTags.includes(tag)
-                        ? 'bg-indigo-600 text-white'
-                        : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                    }`}
-                  >
-                    {tag}
-                  </button>
-                ))}
-              </div>
-              
-              {/* カスタムタグ追加 */}
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newCustomTag}
-                  onChange={(e) => setNewCustomTag(e.target.value)}
-                  onKeyPress={(e) => {
-                    if (e.key === 'Enter' && newCustomTag.trim() && !newCharacterTags.includes(newCustomTag.trim())) {
-                      setNewCharacterTags([...newCharacterTags, newCustomTag.trim()]);
-                      setNewCustomTag('');
-                    }
-                  }}
-                  className="flex-1 px-3 py-1 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white text-sm"
-                  placeholder="新しいタグを入力してEnter"
-                />
-              </div>
-              
-              {/* 選択中のタグ表示 */}
-              {newCharacterTags.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {newCharacterTags.map((tag, index) => (
-                    <span
-                      key={index}
-                      className="inline-flex items-center gap-1 bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 px-2 py-1 rounded-full text-xs"
-                    >
-                      {tag}
-                      <button
-                        onClick={() => setNewCharacterTags(newCharacterTags.filter((_, i) => i !== index))}
-                        className="hover:text-red-500"
-                      >
-                        ✕
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  setShowAddCharacterModal(false);
-                  setNewCharacterName('');
-                  setNewCharacterAnimeId(null);
-                  setNewCharacterImage('👤');
-                  setNewCharacterCategory('');
-                  setNewCharacterTags([]);
-                  setNewCustomTag('');
-                }}
-                className="flex-1 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 py-3 rounded-xl font-bold hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-              >
-                キャンセル
-              </button>
-              <button
-                onClick={() => {
-                  if (newCharacterName.trim() && newCharacterAnimeId) {
-                    const selectedAnime = allAnimes.find(a => a.id === newCharacterAnimeId);
-                    if (selectedAnime) {
-                      const newCharacter: FavoriteCharacter = {
-                        id: Date.now(),
-                        name: newCharacterName.trim(),
-                        animeId: newCharacterAnimeId,
-                        animeName: selectedAnime.title,
-                        image: newCharacterImage,
-                        category: newCharacterCategory,
-                        tags: newCharacterTags,
-                      };
-                      setFavoriteCharacters([...favoriteCharacters, newCharacter]);
-                      setShowAddCharacterModal(false);
-                      setNewCharacterName('');
-                      setNewCharacterAnimeId(null);
-                      setNewCharacterImage('👤');
-                      setNewCharacterCategory('');
-                      setNewCharacterTags([]);
-                      setNewCustomTag('');
-                    }
-                  }
-                }}
-                className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors"
-              >
-                追加
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
 // 実績タブコンポーネント
-function AchievementsTab({ allAnimes, achievements }: { allAnimes: Anime[]; achievements: Achievement[] }) {
+function AchievementsTab({ 
+  allAnimes, 
+  achievements, 
+  user, 
+  supabase 
+}: { 
+  allAnimes: Anime[]; 
+  achievements: Achievement[];
+  user: any;
+  supabase: any;
+}) {
   const [selectedAchievement, setSelectedAchievement] = useState<Achievement | null>(null);
+  const [reviewStats, setReviewStats] = useState<{
+    reviewCount: number;
+    totalLikes: number;
+    totalHelpful: number;
+  }>({ reviewCount: 0, totalLikes: 0, totalHelpful: 0 });
+  
+  // 感想統計を取得
+  useEffect(() => {
+    const loadReviewStats = async () => {
+      if (!user || !supabase) {
+        setReviewStats({ reviewCount: 0, totalLikes: 0, totalHelpful: 0 });
+        return;
+      }
+      
+      try {
+        // 自分の感想をすべて取得
+        const { data: reviews, error } = await supabase
+          .from('reviews')
+          .select('id, likes, helpful_count')
+          .eq('user_id', user.id);
+        
+        if (error) throw error;
+        
+        const reviewCount = reviews?.length || 0;
+        const totalLikes = reviews?.reduce((sum: number, r: any) => sum + (r.likes || 0), 0) || 0;
+        const totalHelpful = reviews?.reduce((sum: number, r: any) => sum + (r.helpful_count || 0), 0) || 0;
+        
+        setReviewStats({ reviewCount, totalLikes, totalHelpful });
+      } catch (error) {
+        console.error('Failed to load review stats:', error);
+        setReviewStats({ reviewCount: 0, totalLikes: 0, totalHelpful: 0 });
+      }
+    };
+    
+    loadReviewStats();
+  }, [user, supabase]);
   
   // 実績の解除判定
   const checkAchievement = (achievement: Achievement): boolean => {
@@ -949,6 +639,16 @@ function AchievementsTab({ allAnimes, achievements }: { allAnimes: Anime[]; achi
         return maxRewatchCount >= achievement.condition;
       case 'godtaste':
         return godTasteCount >= achievement.condition;
+      // 感想関連実績
+      case 'review1':
+      case 'review10':
+      case 'review50':
+        return reviewStats.reviewCount >= achievement.condition;
+      case 'liked10':
+      case 'liked50':
+        return reviewStats.totalLikes >= achievement.condition;
+      case 'helpful10':
+        return reviewStats.totalHelpful >= achievement.condition;
       default:
         return false;
     }
@@ -1057,16 +757,34 @@ function MusicTab({
   allAnimes,
   seasons,
   setSeasons,
+  setSelectedAnime,
+  setSongType,
+  setNewSongTitle,
+  setNewSongArtist,
+  setShowSongModal,
+  user,
+  supabase,
 }: {
   allAnimes: Anime[];
   seasons: Season[];
   setSeasons: (seasons: Season[]) => void;
+  setSelectedAnime: (anime: Anime | null) => void;
+  setSongType: (type: 'op' | 'ed' | null) => void;
+  setNewSongTitle: (title: string) => void;
+  setNewSongArtist: (artist: string) => void;
+  setShowSongModal: (show: boolean) => void;
+  user: any;
+  supabase: any;
 }) {
+  const [musicSearchQuery, setMusicSearchQuery] = useState('');
+  const [musicFilterType, setMusicFilterType] = useState<'all' | 'op' | 'ed' | 'artist'>('all');
+  const [selectedArtistForFilter, setSelectedArtistForFilter] = useState<string | null>(null);
+  
   // すべての曲を取得
   const allSongs: Array<{
-  title: string;
+    title: string;
     artist: string;
-  rating: number;
+    rating: number;
     isFavorite: boolean;
     animeTitle: string;
     type: 'op' | 'ed';
@@ -1092,11 +810,33 @@ function MusicTab({
     }
   });
 
-  // お気に入り曲
-  const favoriteSongs = allSongs.filter((song) => song.isFavorite);
+  // フィルタリング
+  const filteredSongs = allSongs.filter(song => {
+    // 検索クエリでフィルタ
+    if (musicSearchQuery && 
+        !song.title.toLowerCase().includes(musicSearchQuery.toLowerCase()) &&
+        !song.artist.toLowerCase().includes(musicSearchQuery.toLowerCase()) &&
+        !song.animeTitle.toLowerCase().includes(musicSearchQuery.toLowerCase())) {
+      return false;
+    }
+    
+    // タイプでフィルタ
+    if (musicFilterType === 'op' && song.type !== 'op') return false;
+    if (musicFilterType === 'ed' && song.type !== 'ed') return false;
+    
+    // アーティストでフィルタ
+    if (musicFilterType === 'artist' && selectedArtistForFilter && song.artist !== selectedArtistForFilter) {
+      return false;
+    }
+    
+    return true;
+  });
 
-  // 高評価TOP10
-  const topRatedSongs = [...allSongs]
+  // お気に入り曲
+  const favoriteSongs = filteredSongs.filter((song) => song.isFavorite);
+
+  // 高評価TOP10（フィルタ後）
+  const topRatedSongs = [...filteredSongs]
     .sort((a, b) => b.rating - a.rating)
     .slice(0, 10);
 
@@ -1107,94 +847,277 @@ function MusicTab({
   });
   const topArtists = Object.entries(artistCounts)
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
+    .slice(0, 10);
+  
+  // ユニークなアーティストリスト
+  const uniqueArtists = Array.from(new Set(allSongs.map(s => s.artist))).sort();
 
   return (
     <div className="space-y-6">
+      {/* ヘッダーと追加ボタン */}
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xl font-bold dark:text-white">主題歌</h2>
+        <button
+          onClick={() => {
+            setSelectedAnime(null);
+            setSongType(null);
+            setNewSongTitle('');
+            setNewSongArtist('');
+            setShowSongModal(true);
+          }}
+          className="text-sm bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors"
+        >
+          + 主題歌を追加
+        </button>
+      </div>
+
+      {/* 検索・フィルタ */}
+      {allSongs.length > 0 && (
+        <div className="space-y-3">
+          {/* 検索バー */}
+          <input
+            type="text"
+            value={musicSearchQuery}
+            onChange={(e) => setMusicSearchQuery(e.target.value)}
+            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
+            placeholder="曲名、アーティスト、アニメで検索..."
+          />
+          
+          {/* フィルタボタン */}
+          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+            <button
+              onClick={() => {
+                setMusicFilterType('all');
+                setSelectedArtistForFilter(null);
+              }}
+              className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
+                musicFilterType === 'all'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+              }`}
+            >
+              すべて
+            </button>
+            <button
+              onClick={() => {
+                setMusicFilterType('op');
+                setSelectedArtistForFilter(null);
+              }}
+              className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
+                musicFilterType === 'op'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+              }`}
+            >
+              OP
+            </button>
+            <button
+              onClick={() => {
+                setMusicFilterType('ed');
+                setSelectedArtistForFilter(null);
+              }}
+              className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
+                musicFilterType === 'ed'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+              }`}
+            >
+              ED
+            </button>
+            <button
+              onClick={() => {
+                setMusicFilterType('artist');
+                setSelectedArtistForFilter(null);
+              }}
+              className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
+                musicFilterType === 'artist'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+              }`}
+            >
+              アーティスト別
+            </button>
+          </div>
+          
+          {/* アーティスト選択（アーティスト別フィルタ時） */}
+          {musicFilterType === 'artist' && (
+            <select
+              value={selectedArtistForFilter || ''}
+              onChange={(e) => setSelectedArtistForFilter(e.target.value || null)}
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
+            >
+              <option value="">アーティストを選択...</option>
+              {uniqueArtists.map((artist) => (
+                <option key={artist} value={artist}>
+                  {artist}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
+
       {/* お気に入り曲 */}
       {favoriteSongs.length > 0 && (
         <div>
           <h2 className="font-bold text-lg mb-3 dark:text-white">お気に入り曲</h2>
           <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
-            {favoriteSongs.map((song, index) => (
-              <div
-                key={index}
-                className={`flex-shrink-0 w-48 rounded-xl p-4 text-white shadow-lg ${
-                  song.type === 'op'
-                    ? 'bg-gradient-to-br from-orange-500 to-red-500'
-                    : 'bg-gradient-to-br from-blue-500 to-purple-600'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-bold bg-white/20 px-2 py-1 rounded">
-                    {song.type.toUpperCase()}
-                  </span>
-                  <span className="text-lg">❤️</span>
+            {favoriteSongs.map((song, index) => {
+              const anime = allAnimes.find(a => a.id === song.animeId);
+              return (
+                <div
+                  key={index}
+                  className={`flex-shrink-0 w-48 rounded-xl p-4 text-white shadow-lg relative group ${
+                    song.type === 'op'
+                      ? 'bg-gradient-to-br from-orange-500 to-red-500'
+                      : 'bg-gradient-to-br from-blue-500 to-purple-600'
+                  }`}
+                >
+                  {/* 編集・削除ボタン */}
+                  <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                    <button
+                      onClick={() => {
+                        setSelectedAnime(anime || null);
+                        setSongType(song.type);
+                        setNewSongTitle(song.title);
+                        setNewSongArtist(song.artist);
+                        setShowSongModal(true);
+                      }}
+                      className="bg-blue-500 text-white p-1 rounded-lg hover:bg-blue-600 transition-colors"
+                      title="編集"
+                    >
+                      ✏️
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (confirm(`${song.title}を削除しますか？`)) {
+                          const updatedSongs = {
+                            ...anime?.songs,
+                            [song.type]: undefined,
+                          };
+                          
+                          const updatedSeasons = seasons.map(season => ({
+                            ...season,
+                            animes: season.animes.map(a =>
+                              a.id === song.animeId
+                                ? {
+                                    ...a,
+                                    songs: updatedSongs,
+                                  }
+                                : a
+                            ),
+                          }));
+                          
+                          // Supabaseを更新（ログイン時のみ）
+                          if (user && anime) {
+                            try {
+                              const { error } = await supabase
+                                .from('animes')
+                                .update({ songs: updatedSongs })
+                                .eq('id', song.animeId)
+                                .eq('user_id', user.id);
+                              
+                              if (error) throw error;
+                            } catch (error) {
+                              console.error('Failed to delete song in Supabase:', error);
+                            }
+                          }
+                          
+                          setSeasons(updatedSeasons);
+                        }
+                      }}
+                      className="bg-red-500 text-white p-1 rounded-lg hover:bg-red-600 transition-colors"
+                      title="削除"
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                  
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold bg-white/20 px-2 py-1 rounded">
+                      {song.type.toUpperCase()}
+                    </span>
+                    <span className="text-lg">❤️</span>
+                  </div>
+                  <p className="font-bold text-sm mb-1">{song.title}</p>
+                  <p className="text-xs text-white/80 mb-2">{song.artist}</p>
+                  <p className="text-xs text-white/70">{song.animeTitle}</p>
+                  <div className="mt-2 flex items-center gap-1">
+                    <span className="text-yellow-300 text-sm">
+                      {'⭐'.repeat(song.rating)}
+                    </span>
+                  </div>
                 </div>
-                <p className="font-bold text-sm mb-1">{song.title}</p>
-                <p className="text-xs text-white/80 mb-2">{song.artist}</p>
-                <p className="text-xs text-white/70">{song.animeTitle}</p>
-                <div className="mt-2 flex items-center gap-1">
-                  <span className="text-yellow-300 text-sm">
-                    {'⭐'.repeat(song.rating)}
-                  </span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
 
       {/* 高評価TOP10 */}
-      <div>
-        <h2 className="font-bold text-lg mb-3 dark:text-white">高評価 TOP10</h2>
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md">
-          {topRatedSongs.map((song, index) => (
-            <div
-              key={index}
-              className="flex items-center gap-3 py-3 border-b dark:border-gray-700 last:border-0"
-            >
-              <span className="text-2xl font-black text-gray-300 dark:text-gray-600 w-8">
-                {index + 1}
-              </span>
-              <div className="flex-1">
-                <p className="font-bold text-sm dark:text-white">{song.title}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {song.artist} / {song.animeTitle}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
-                  {song.type.toUpperCase()}
-                </span>
-                <span className="text-yellow-400 text-sm">
-                  {'⭐'.repeat(song.rating)}
-                </span>
-                {song.isFavorite && <span className="text-red-500">❤️</span>}
-              </div>
-            </div>
-          ))}
+      {filteredSongs.length > 0 && (
+        <div>
+          <h2 className="font-bold text-lg mb-3 dark:text-white">高評価 TOP10</h2>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md">
+            {topRatedSongs.length > 0 ? (
+              topRatedSongs.map((song, index) => (
+                <div
+                  key={index}
+                  className="flex items-center gap-3 py-3 border-b dark:border-gray-700 last:border-0"
+                >
+                  <span className="text-2xl font-black text-gray-300 dark:text-gray-600 w-8">
+                    {index + 1}
+                  </span>
+                  <div className="flex-1">
+                    <p className="font-bold text-sm dark:text-white">{song.title}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {song.artist} / {song.animeTitle}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+                      {song.type.toUpperCase()}
+                    </span>
+                    <span className="text-yellow-400 text-sm">
+                      {'⭐'.repeat(song.rating)}
+                    </span>
+                    {song.isFavorite && <span className="text-red-500">❤️</span>}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-gray-500 dark:text-gray-400 text-center py-4">検索結果がありません</p>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* よく聴くアーティスト */}
       <div>
         <h2 className="font-bold text-lg mb-3 dark:text-white">よく聴くアーティスト</h2>
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md">
-          {topArtists.map(([artist, count], index) => (
-            <div
-              key={artist}
-              className="flex items-center justify-between py-3 border-b dark:border-gray-700 last:border-0"
-            >
-              <div className="flex items-center gap-3">
-                <span className="text-xl font-black text-gray-300 dark:text-gray-600 w-6">
-                  {index + 1}
-                </span>
-                <span className="font-bold dark:text-white">{artist}</span>
-              </div>
-              <span className="text-gray-500 dark:text-gray-400">{count}曲</span>
-            </div>
-          ))}
+          {topArtists.length > 0 ? (
+            topArtists.map(([artist, count], index) => (
+              <button
+                key={artist}
+                onClick={() => {
+                  setMusicFilterType('artist');
+                  setSelectedArtistForFilter(artist);
+                }}
+                className="w-full flex items-center justify-between py-3 border-b dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-xl font-black text-gray-300 dark:text-gray-600 w-6">
+                    {index + 1}
+                  </span>
+                  <span className="font-bold dark:text-white">{artist}</span>
+                </div>
+                <span className="text-gray-500 dark:text-gray-400">{count}曲</span>
+              </button>
+            ))
+          ) : (
+            <p className="text-gray-500 dark:text-gray-400 text-center py-4">アーティストが登録されていません</p>
+          )}
         </div>
       </div>
     </div>
@@ -1220,7 +1143,7 @@ function AnimeCard({ anime, onClick }: { anime: Anime; onClick: () => void }) {
       setImageLoading(false);
       setImageError(false);
     }
-  }, [anime.image, isImageUrl]);
+  }, [anime.image]);
   
   return (
     <div 
@@ -1278,12 +1201,15 @@ function AnimeCard({ anime, onClick }: { anime: Anime; onClick: () => void }) {
           <div className="flex gap-1 mt-2 flex-wrap">
             {anime.tags.slice(0, 2).map((tag, index) => {
               const tagInfo = availableTags.find(t => t.value === tag);
+              // タグがavailableTagsにない場合は、ジャンル翻訳を試す
+              const displayLabel = tagInfo?.label || translateGenre(tag) || tag;
+              const displayEmoji = tagInfo?.emoji || '';
               return (
                 <span
                   key={index}
                   className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded-full"
                 >
-                  {tagInfo?.emoji} {tagInfo?.label}
+                  {displayEmoji} {displayLabel}
                 </span>
               );
             })}
@@ -1322,7 +1248,7 @@ export default function Home() {
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'home' | 'discover' | 'collection' | 'profile'>('home');
   const [homeSubTab, setHomeSubTab] = useState<'seasons' | 'series'>('seasons');
-  const [discoverSubTab, setDiscoverSubTab] = useState<'trends' | 'dna'>('trends');
+  const [discoverSubTab, setDiscoverSubTab] = useState<'trends'>('trends');
   const [collectionSubTab, setCollectionSubTab] = useState<'achievements' | 'characters' | 'quotes' | 'lists' | 'music'>('achievements');
   const [expandedSeasons, setExpandedSeasons] = useState<Set<string>>(new Set());
   const [evangelistLists, setEvangelistLists] = useState<EvangelistList[]>([]);
@@ -1340,6 +1266,41 @@ export default function Home() {
   const [newCharacterCategory, setNewCharacterCategory] = useState('');
   const [newCharacterTags, setNewCharacterTags] = useState<string[]>([]);
   const [newCustomTag, setNewCustomTag] = useState('');
+  const [editingCharacter, setEditingCharacter] = useState<FavoriteCharacter | null>(null);
+  const [characterFilter, setCharacterFilter] = useState<string | null>(null);
+  const [quoteSearchQuery, setQuoteSearchQuery] = useState('');
+  const [quoteFilterType, setQuoteFilterType] = useState<'all' | 'anime' | 'character'>('all');
+  const [selectedAnimeForFilter, setSelectedAnimeForFilter] = useState<number | null>(null);
+  const [listSortType, setListSortType] = useState<'date' | 'title' | 'count'>('date');
+  const [showAddQuoteModal, setShowAddQuoteModal] = useState(false);
+  const [editingQuote, setEditingQuote] = useState<{ animeId: number; quoteIndex: number } | null>(null);
+  const [newQuoteAnimeId, setNewQuoteAnimeId] = useState<number | null>(null);
+  const [newQuoteText, setNewQuoteText] = useState('');
+  const [newQuoteCharacter, setNewQuoteCharacter] = useState('');
+  const [showSongModal, setShowSongModal] = useState(false);
+  const [songType, setSongType] = useState<'op' | 'ed' | null>(null);
+  const [newSongTitle, setNewSongTitle] = useState('');
+  const [newSongArtist, setNewSongArtist] = useState('');
+  const [addModalMode, setAddModalMode] = useState<'search' | 'season'>('search');
+  const [selectedSeason, setSelectedSeason] = useState<'SPRING' | 'SUMMER' | 'FALL' | 'WINTER' | null>(null);
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [seasonSearchResults, setSeasonSearchResults] = useState<any[]>([]);
+  const [selectedSeasonAnimeIds, setSelectedSeasonAnimeIds] = useState<Set<number>>(new Set());
+  const [isSeasonSearching, setIsSeasonSearching] = useState(false);
+  const [seasonSearchPage, setSeasonSearchPage] = useState(1);
+  const [hasMoreSeasonResults, setHasMoreSeasonResults] = useState(false);
+  const [animeDetailTab, setAnimeDetailTab] = useState<'info' | 'reviews'>('info');
+  const [animeReviews, setAnimeReviews] = useState<Review[]>([]);
+  const [loadingReviews, setLoadingReviews] = useState(false);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [reviewMode, setReviewMode] = useState<'overall' | 'episode'>('overall');
+  const [newReviewContent, setNewReviewContent] = useState('');
+  const [newReviewContainsSpoiler, setNewReviewContainsSpoiler] = useState(false);
+  const [newReviewEpisodeNumber, setNewReviewEpisodeNumber] = useState<number | undefined>(undefined);
+  const [reviewFilter, setReviewFilter] = useState<'all' | 'overall' | 'episode'>('all');
+  const [reviewSort, setReviewSort] = useState<'newest' | 'likes' | 'helpful'>('newest');
+  const [userSpoilerHidden, setUserSpoilerHidden] = useState(false);
+  const [expandedSpoilerReviews, setExpandedSpoilerReviews] = useState<Set<string>>(new Set());
 
   // 認証状態の監視
   useEffect(() => {
@@ -1585,14 +1546,15 @@ export default function Home() {
       user_id: userId,
       season_name: seasonName,
       title: anime.title,
-      image: anime.image,
-      rating: anime.rating,
-      watched: anime.watched,
+      image: anime.image || null,
+      rating: anime.rating && anime.rating > 0 ? anime.rating : null, // 0の場合はNULLにする
+      watched: anime.watched ?? false,
       rewatch_count: anime.rewatchCount ?? 1,
-      tags: anime.tags || null,
-      songs: anime.songs || null,
-      quotes: anime.quotes || null,
-      series_name: anime.seriesName || null,
+                      tags: (anime.tags && anime.tags.length > 0) ? anime.tags : null,
+                      songs: anime.songs || null,
+                      quotes: anime.quotes || null,
+                      series_name: anime.seriesName || null,
+                      studios: (anime.studios && anime.studios.length > 0) ? anime.studios : null,
     };
   };
 
@@ -1609,8 +1571,105 @@ export default function Home() {
       songs: row.songs || undefined,
       quotes: row.quotes || undefined,
       seriesName: row.series_name || undefined,
+      studios: row.studios || undefined,
     };
   };
+
+  // 感想をSupabaseから読み込む
+  const loadReviews = async (animeId: number) => {
+    if (!user) {
+      setAnimeReviews([]);
+      return;
+    }
+    
+    setLoadingReviews(true);
+    try {
+      // アニメのUUIDを取得（animesテーブルから）
+      const { data: animeData, error: animeError } = await supabase
+        .from('animes')
+        .select('id')
+        .eq('id', animeId)
+        .eq('user_id', user.id)
+        .single();
+      
+      if (animeError || !animeData) {
+        console.error('Failed to find anime:', animeError);
+        setAnimeReviews([]);
+        setLoadingReviews(false);
+        return;
+      }
+      
+      const animeUuid = animeData.id;
+      
+      // 感想を取得
+      const { data: reviewsData, error: reviewsError } = await supabase
+        .from('reviews')
+        .select('*')
+        .eq('anime_id', animeUuid)
+        .order('created_at', { ascending: false });
+      
+      if (reviewsError) throw reviewsError;
+      
+      // 現在のユーザーがいいね/役に立ったを押したか確認
+      if (reviewsData && reviewsData.length > 0) {
+        const reviewIds = reviewsData.map(r => r.id);
+        
+        // いいね情報を取得
+        const { data: likesData } = await supabase
+          .from('review_likes')
+          .select('review_id')
+          .in('review_id', reviewIds)
+          .eq('user_id', user.id);
+        
+        // 役に立った情報を取得
+        const { data: helpfulData } = await supabase
+          .from('review_helpful')
+          .select('review_id')
+          .in('review_id', reviewIds)
+          .eq('user_id', user.id);
+        
+        const likedReviewIds = new Set(likesData?.map(l => l.review_id) || []);
+        const helpfulReviewIds = new Set(helpfulData?.map(h => h.review_id) || []);
+        
+        const reviews: Review[] = reviewsData.map((r: any) => ({
+          id: r.id,
+          animeId: animeId, // 数値IDを保持
+          userId: r.user_id,
+          userName: r.user_name,
+          userIcon: r.user_icon,
+          type: r.type as 'overall' | 'episode',
+          episodeNumber: r.episode_number || undefined,
+          content: r.content,
+          containsSpoiler: r.contains_spoiler,
+          spoilerHidden: r.spoiler_hidden,
+          likes: r.likes || 0,
+          helpfulCount: r.helpful_count || 0,
+          createdAt: new Date(r.created_at),
+          updatedAt: new Date(r.updated_at),
+          userLiked: likedReviewIds.has(r.id),
+          userHelpful: helpfulReviewIds.has(r.id),
+        }));
+        
+        setAnimeReviews(reviews);
+      } else {
+        setAnimeReviews([]);
+      }
+    } catch (error) {
+      console.error('Failed to load reviews:', error);
+      setAnimeReviews([]);
+    } finally {
+      setLoadingReviews(false);
+    }
+  };
+
+  // アニメが選択されたときに感想を読み込む
+  useEffect(() => {
+    if (selectedAnime && user) {
+      loadReviews(selectedAnime.id);
+    } else {
+      setAnimeReviews([]);
+    }
+  }, [selectedAnime?.id, user]);
 
   // ログイン時にSupabaseからアニメデータを読み込む、未ログイン時はlocalStorageから読み込む
   useEffect(() => {
@@ -1971,38 +2030,16 @@ export default function Home() {
         
         {activeTab === 'discover' && (
           <>
-            {/* サブタブ */}
-            <div className="flex gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
-              <button
-                onClick={() => setDiscoverSubTab('trends')}
-                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
-                  discoverSubTab === 'trends'
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                }`}
-              >
-                傾向分析
-              </button>
-              <button
-                onClick={() => setDiscoverSubTab('dna')}
-                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
-                  discoverSubTab === 'dna'
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                }`}
-              >
-                DNAカード
-              </button>
-            </div>
-
             {discoverSubTab === 'trends' && (
               <div className="space-y-6">
                 {(() => {
                   // 統計データの計算
                   const totalAnimes = allAnimes.length;
                   const totalRewatchCount = allAnimes.reduce((sum, a) => sum + (a.rewatchCount ?? 1), 0);
-                  const avgRating = allAnimes.length > 0
-                    ? allAnimes.reduce((sum, a) => sum + (a.rating || 0), 0) / allAnimes.length
+                  // 評価が未登録（rating: 0またはnull）の場合は平均計算から除外
+                  const ratedAnimes = allAnimes.filter(a => a.rating && a.rating > 0);
+                  const avgRating = ratedAnimes.length > 0
+                    ? ratedAnimes.reduce((sum, a) => sum + a.rating, 0) / ratedAnimes.length
                     : 0;
                   
                   // 最も見たクールを計算
@@ -2039,6 +2076,34 @@ export default function Home() {
                   }));
                   const maxSeasonCount = Math.max(...seasonAnimeCounts.map(s => s.count), 1);
                   
+                  // タグの集計（マイページから移動）
+                  const tagCountsForProfile: { [key: string]: number } = {};
+                  allAnimes.forEach(anime => {
+                    anime.tags?.forEach(tag => {
+                      tagCountsForProfile[tag] = (tagCountsForProfile[tag] || 0) + 1;
+                    });
+                  });
+                  const sortedTagsForProfile = Object.entries(tagCountsForProfile)
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 5);
+                  const mostPopularTag = sortedTagsForProfile[0] ? availableTags.find(t => t.value === sortedTagsForProfile[0][0]) : null;
+                  
+                  // 制作会社を実際のアニメデータから集計
+                  const studioCounts: { [key: string]: number } = {};
+                  allAnimes.forEach(anime => {
+                    if (anime.studios && Array.isArray(anime.studios)) {
+                      anime.studios.forEach(studio => {
+                        if (studio) {
+                          studioCounts[studio] = (studioCounts[studio] || 0) + 1;
+                        }
+                      });
+                    }
+                  });
+                  const studios = Object.entries(studioCounts)
+                    .map(([name, count]) => ({ name, count }))
+                    .sort((a, b) => b.count - a.count)
+                    .slice(0, 10); // 上位10社
+                  
                   // 傾向テキスト生成
                   const topTags = sortedTags.slice(0, 2);
                   const tendencyText = topTags.length > 0
@@ -2050,7 +2115,7 @@ export default function Home() {
                   
                   return (
                     <>
-                      {/* 視聴統計サマリー */}
+                      {/* 視聴統計サマリー（統合版、一番上） */}
                       <div className="bg-gradient-to-br from-indigo-600 to-purple-600 rounded-2xl p-5 text-white shadow-lg">
                         <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
                           <span>📊</span>
@@ -2078,6 +2143,15 @@ export default function Home() {
                             </p>
                           </div>
                         </div>
+                      </div>
+                      
+                      {/* あなたの傾向まとめ（サマリーの次） */}
+                      <div className="bg-gradient-to-br from-pink-500 to-purple-600 rounded-2xl p-5 text-white shadow-lg">
+                        <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
+                          <span>✨</span>
+                          あなたの傾向まとめ
+                        </h3>
+                        <p className="text-sm leading-relaxed">{tendencyText}</p>
                       </div>
 
                       {/* ジャンル分布 */}
@@ -2160,7 +2234,7 @@ export default function Home() {
                         <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
                           <p className="text-xs text-gray-600 dark:text-gray-400 text-center">
                             {ratingCounts.find(r => r.rating === 5)?.count || 0}本の神作、
-                            {ratingCounts.find(r => r.rating === 4)?.count || 0}本の円盤級、
+                            {ratingCounts.find(r => r.rating === 4)?.count || 0}本の名作、
                             {ratingCounts.find(r => r.rating === 3)?.count || 0}本の普通作品
                           </p>
                         </div>
@@ -2203,13 +2277,21 @@ export default function Home() {
                         )}
                       </div>
 
-                      {/* あなたの傾向まとめ */}
-                      <div className="bg-gradient-to-br from-pink-500 to-purple-600 rounded-2xl p-5 text-white shadow-lg">
-                        <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
-                          <span>✨</span>
-                          あなたの傾向まとめ
-                        </h3>
-                        <p className="text-sm leading-relaxed">{tendencyText}</p>
+                      {/* よく見る制作会社（最後） */}
+                      <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md">
+                        <h3 className="font-bold text-lg mb-3 dark:text-white">よく見る制作会社</h3>
+                        {studios.length > 0 ? (
+                          <div className="space-y-2">
+                            {studios.map((studio) => (
+                              <div key={studio.name} className="flex justify-between items-center py-2 border-b dark:border-gray-700 last:border-0">
+                                <span className="font-medium dark:text-white">{studio.name}</span>
+                                <span className="text-gray-500 dark:text-gray-400">{studio.count}作品</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-400 text-center py-4">データがありません</p>
+                        )}
                       </div>
                     </>
                   );
@@ -2217,69 +2299,59 @@ export default function Home() {
               </div>
             )}
 
-            {discoverSubTab === 'dna' && (
-              <div className="space-y-4">
-                <button
-                  onClick={() => setShowDNAModal(true)}
-                  className="w-full py-4 bg-gradient-to-br from-indigo-600 to-purple-600 rounded-2xl text-white font-bold hover:from-indigo-700 hover:to-purple-700 transition-all"
-                >
-                  DNAカードを表示
-                </button>
-              </div>
-            )}
           </>
         )}
 
         {activeTab === 'collection' && (
           <>
             {/* サブタブ */}
-            <div className="flex gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
+            <div className="flex gap-3 mb-6 overflow-x-auto pb-2 scrollbar-hide">
               <button
                 onClick={() => setCollectionSubTab('achievements')}
-                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
+                className={`px-6 py-3 rounded-full text-base font-semibold whitespace-nowrap transition-all min-w-[100px] text-center ${
                   collectionSubTab === 'achievements'
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                    ? 'bg-indigo-600 text-white shadow-md'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
                 }`}
               >
                 実績
               </button>
               <button
                 onClick={() => setCollectionSubTab('characters')}
-                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
+                className={`px-6 py-3 rounded-full text-base font-semibold whitespace-nowrap transition-all min-w-[100px] text-center ${
                   collectionSubTab === 'characters'
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                    ? 'bg-indigo-600 text-white shadow-md'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
                 }`}
               >
                 推しキャラ
               </button>
               <button
                 onClick={() => setCollectionSubTab('quotes')}
-                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
+                className={`px-6 py-3 rounded-full text-base font-semibold whitespace-nowrap transition-all min-w-[100px] text-center ${
                   collectionSubTab === 'quotes'
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                    ? 'bg-indigo-600 text-white shadow-md'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
                 }`}
               >
                 名言
               </button>
               <button
                 onClick={() => setCollectionSubTab('lists')}
-                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
+                className={`px-6 py-3 rounded-full text-base font-semibold whitespace-nowrap transition-all min-w-[100px] text-center ${
                   collectionSubTab === 'lists'
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                    ? 'bg-indigo-600 text-white shadow-md'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
                 }`}
               >
                 布教リスト
               </button>
               <button
                 onClick={() => setCollectionSubTab('music')}
-                className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
+                className={`px-6 py-3 rounded-full text-base font-semibold whitespace-nowrap transition-all min-w-[100px] text-center ${
                   collectionSubTab === 'music'
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                    ? 'bg-indigo-600 text-white shadow-md'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
                 }`}
               >
                 主題歌
@@ -2290,6 +2362,8 @@ export default function Home() {
               <AchievementsTab 
                 allAnimes={allAnimes}
                 achievements={achievements}
+                user={user}
+                supabase={supabase}
               />
             )}
 
@@ -2305,6 +2379,7 @@ export default function Home() {
                       setNewCharacterCategory('');
                       setNewCharacterTags([]);
                       setNewCustomTag('');
+                      setEditingCharacter(null);
                       setShowAddCharacterModal(true);
                     }}
                     className="text-sm bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors"
@@ -2312,69 +2387,338 @@ export default function Home() {
                     + 推しを追加
                   </button>
                 </div>
-                {favoriteCharacters.length > 0 ? (
-                  <div className="grid grid-cols-2 gap-3">
-                    {favoriteCharacters.map((character) => (
-                      <div
-                        key={character.id}
-                        className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md"
-                      >
-                        <div className="text-4xl text-center mb-2">{character.image}</div>
-                        <h3 className="font-bold text-sm dark:text-white text-center mb-1">{character.name}</h3>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 text-center mb-2">{character.animeName}</p>
-                        <div className="flex items-center justify-center mb-2">
-                          <span className="text-xs bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 px-2 py-1 rounded-full">
-                            {character.category}
-                          </span>
-                        </div>
-                        {character.tags.length > 0 && (
-                          <div className="flex flex-wrap gap-1 justify-center">
-                            {character.tags.slice(0, 3).map((tag, index) => (
-                              <span
-                                key={index}
-                                className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-1.5 py-0.5 rounded"
-                              >
-                                {tag}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ))}
+                
+                {/* カテゴリフィルタ */}
+                {favoriteCharacters.length > 0 && (
+                  <div className="flex gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
+                    <button
+                      onClick={() => setCharacterFilter(null)}
+                      className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
+                        characterFilter === null
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                      }`}
+                    >
+                      すべて
+                    </button>
+                    {characterCategories.map((category) => {
+                      const count = favoriteCharacters.filter(c => c.category === category.value).length;
+                      if (count === 0) return null;
+                      return (
+                        <button
+                          key={category.value}
+                          onClick={() => setCharacterFilter(category.value)}
+                          className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
+                            characterFilter === category.value
+                              ? 'bg-indigo-600 text-white'
+                              : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                          }`}
+                        >
+                          {category.emoji} {category.label} ({count})
+                        </button>
+                      );
+                    })}
                   </div>
-                ) : (
-                  <p className="text-gray-500 dark:text-gray-400 text-center py-8">推しキャラが登録されていません</p>
                 )}
+                
+                {(() => {
+                  const filteredCharacters = characterFilter
+                    ? favoriteCharacters.filter(c => c.category === characterFilter)
+                    : favoriteCharacters;
+                  
+                  return filteredCharacters.length > 0 ? (
+                    <div className="grid grid-cols-2 gap-3">
+                      {filteredCharacters.map((character) => (
+                        <div
+                          key={character.id}
+                          className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md relative group"
+                        >
+                          {/* 編集・削除ボタン */}
+                          <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              onClick={() => {
+                                setEditingCharacter(character);
+                                setNewCharacterName(character.name);
+                                setNewCharacterAnimeId(character.animeId);
+                                setNewCharacterImage(character.image);
+                                setNewCharacterCategory(character.category);
+                                setNewCharacterTags([...character.tags]);
+                                setNewCustomTag('');
+                                setShowAddCharacterModal(true);
+                              }}
+                              className="bg-blue-500 text-white p-1.5 rounded-lg hover:bg-blue-600 transition-colors"
+                              title="編集"
+                            >
+                              ✏️
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (confirm(`${character.name}を削除しますか？`)) {
+                                  setFavoriteCharacters(favoriteCharacters.filter(c => c.id !== character.id));
+                                }
+                              }}
+                              className="bg-red-500 text-white p-1.5 rounded-lg hover:bg-red-600 transition-colors"
+                              title="削除"
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                          
+                          <div className="text-4xl text-center mb-2">{character.image}</div>
+                          <h3 className="font-bold text-sm dark:text-white text-center mb-1">{character.name}</h3>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 text-center mb-2">{character.animeName}</p>
+                          <div className="flex items-center justify-center mb-2">
+                            <span className="text-xs bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 px-2 py-1 rounded-full">
+                              {character.category}
+                            </span>
+                          </div>
+                          {character.tags.length > 0 && (
+                            <div className="flex flex-wrap gap-1 justify-center">
+                              {character.tags.slice(0, 3).map((tag, index) => (
+                                <span
+                                  key={index}
+                                  className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-1.5 py-0.5 rounded"
+                                >
+                                  {tag}
+                                </span>
+                              ))}
+                              {character.tags.length > 3 && (
+                                <span className="text-xs text-gray-400">+{character.tags.length - 3}</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-gray-500 dark:text-gray-400 text-center py-8">
+                      {characterFilter ? 'このカテゴリに推しキャラが登録されていません' : '推しキャラが登録されていません'}
+                    </p>
+                  );
+                })()}
               </div>
             )}
 
             {collectionSubTab === 'quotes' && (
               <div className="space-y-4">
-                <h2 className="text-xl font-bold dark:text-white mb-4">名言コレクション</h2>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl font-bold dark:text-white">名言コレクション</h2>
+                  <button
+                    onClick={() => {
+                      setEditingQuote(null);
+                      setNewQuoteAnimeId(null);
+                      setNewQuoteText('');
+                      setNewQuoteCharacter('');
+                      setShowAddQuoteModal(true);
+                    }}
+                    className="text-sm bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors"
+                  >
+                    + 名言を追加
+                  </button>
+                </div>
+                
                 {(() => {
-                  const allQuotes: Array<{ text: string; character?: string; animeTitle: string }> = [];
+                  const allQuotes: Array<{ text: string; character?: string; animeTitle: string; animeId: number }> = [];
                   allAnimes.forEach((anime) => {
                     anime.quotes?.forEach((quote) => {
-                      allQuotes.push({ ...quote, animeTitle: anime.title });
+                      allQuotes.push({ ...quote, animeTitle: anime.title, animeId: anime.id });
                     });
                   });
 
-                  return allQuotes.length > 0 ? (
-                    <div className="space-y-3">
-                      {allQuotes.map((quote, index) => (
-                        <div
-                          key={index}
-                          className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md border-l-4 border-indigo-500"
-                        >
-                          <p className="text-sm dark:text-white mb-2">「{quote.text}」</p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">
-                            {quote.character ? `${quote.character} / ` : ''}{quote.animeTitle}
-                          </p>
+                  // フィルタリング
+                  const filteredQuotes = allQuotes.filter(quote => {
+                    // 検索クエリでフィルタ
+                    if (quoteSearchQuery && !quote.text.toLowerCase().includes(quoteSearchQuery.toLowerCase()) &&
+                        !quote.animeTitle.toLowerCase().includes(quoteSearchQuery.toLowerCase()) &&
+                        !(quote.character && quote.character.toLowerCase().includes(quoteSearchQuery.toLowerCase()))) {
+                      return false;
+                    }
+                    
+                    // アニメ別フィルタ
+                    if (quoteFilterType === 'anime' && selectedAnimeForFilter && quote.animeId !== selectedAnimeForFilter) {
+                      return false;
+                    }
+                    
+                    // キャラクター別フィルタ
+                    if (quoteFilterType === 'character' && !quote.character) {
+                      return false;
+                    }
+                    
+                    return true;
+                  });
+                  
+                  // アニメ一覧（フィルタ用）
+                  const uniqueAnimes = Array.from(new Set(allQuotes.map(q => q.animeId)))
+                    .map(id => allAnimes.find(a => a.id === id))
+                    .filter(Boolean) as Anime[];
+
+                  return (
+                    <>
+                      {/* 検索・フィルタ */}
+                      {allQuotes.length > 0 && (
+                        <div className="space-y-3 mb-4">
+                          {/* 検索バー */}
+                          <input
+                            type="text"
+                            value={quoteSearchQuery}
+                            onChange={(e) => setQuoteSearchQuery(e.target.value)}
+                            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
+                            placeholder="名言、アニメ、キャラクターで検索..."
+                          />
+                          
+                          {/* フィルタボタン */}
+                          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                            <button
+                              onClick={() => {
+                                setQuoteFilterType('all');
+                                setSelectedAnimeForFilter(null);
+                              }}
+                              className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
+                                quoteFilterType === 'all'
+                                  ? 'bg-indigo-600 text-white'
+                                  : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                              }`}
+                            >
+                              すべて
+                            </button>
+                            <button
+                              onClick={() => {
+                                setQuoteFilterType('anime');
+                                setSelectedAnimeForFilter(null);
+                              }}
+                              className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
+                                quoteFilterType === 'anime'
+                                  ? 'bg-indigo-600 text-white'
+                                  : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                              }`}
+                            >
+                              アニメ別
+                            </button>
+                            <button
+                              onClick={() => {
+                                setQuoteFilterType('character');
+                                setSelectedAnimeForFilter(null);
+                              }}
+                              className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
+                                quoteFilterType === 'character'
+                                  ? 'bg-indigo-600 text-white'
+                                  : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                              }`}
+                            >
+                              キャラクター別
+                            </button>
+                          </div>
+                          
+                          {/* アニメ選択（アニメ別フィルタ時） */}
+                          {quoteFilterType === 'anime' && (
+                            <select
+                              value={selectedAnimeForFilter || ''}
+                              onChange={(e) => setSelectedAnimeForFilter(Number(e.target.value) || null)}
+                              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
+                            >
+                              <option value="">アニメを選択...</option>
+                              {uniqueAnimes.map((anime) => (
+                                <option key={anime.id} value={anime.id}>
+                                  {anime.title}
+                                </option>
+                              ))}
+                            </select>
+                          )}
                         </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-gray-500 dark:text-gray-400 text-center py-8">名言が登録されていません</p>
+                      )}
+                      
+                      {filteredQuotes.length > 0 ? (
+                        <div className="space-y-3">
+                          {(() => {
+                            // 名言とアニメID、インデックスのマッピングを作成
+                            const quoteMap: Array<{ quote: typeof filteredQuotes[0]; animeId: number; quoteIndex: number }> = [];
+                            filteredQuotes.forEach((quote) => {
+                              const anime = allAnimes.find(a => a.id === quote.animeId);
+                              if (anime && anime.quotes) {
+                                const quoteIndex = anime.quotes.findIndex(q => q.text === quote.text && q.character === quote.character);
+                                if (quoteIndex !== -1) {
+                                  quoteMap.push({ quote, animeId: quote.animeId, quoteIndex });
+                                }
+                              }
+                            });
+                            
+                            return quoteMap.map(({ quote, animeId, quoteIndex }, index) => (
+                              <div
+                                key={`${animeId}-${quoteIndex}`}
+                                className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md border-l-4 border-indigo-500 relative group"
+                              >
+                                {/* 編集・削除ボタン */}
+                                <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <button
+                                    onClick={() => {
+                                      const anime = allAnimes.find(a => a.id === animeId);
+                                      if (anime && anime.quotes && anime.quotes[quoteIndex]) {
+                                        setEditingQuote({ animeId, quoteIndex });
+                                        setNewQuoteText(anime.quotes[quoteIndex].text);
+                                        setNewQuoteCharacter(anime.quotes[quoteIndex].character || '');
+                                        setShowAddQuoteModal(true);
+                                      }
+                                    }}
+                                    className="bg-blue-500 text-white p-1.5 rounded-lg hover:bg-blue-600 transition-colors"
+                                    title="編集"
+                                  >
+                                    ✏️
+                                  </button>
+                                  <button
+                                    onClick={async () => {
+                                      if (confirm('この名言を削除しますか？')) {
+                                        const anime = allAnimes.find(a => a.id === animeId);
+                                        if (anime && anime.quotes) {
+                                          const updatedQuotes = anime.quotes.filter((_, i) => i !== quoteIndex);
+                                          const updatedSeasons = seasons.map(season => ({
+                                            ...season,
+                                            animes: season.animes.map(a =>
+                                              a.id === animeId
+                                                ? { ...a, quotes: updatedQuotes }
+                                                : a
+                                            ),
+                                          }));
+                                          
+                                          // Supabaseを更新（ログイン時のみ）
+                                          if (user) {
+                                            try {
+                                              const { error } = await supabase
+                                                .from('animes')
+                                                .update({ quotes: updatedQuotes })
+                                                .eq('id', animeId)
+                                                .eq('user_id', user.id);
+                                              
+                                              if (error) throw error;
+                                            } catch (error) {
+                                              console.error('Failed to delete quote in Supabase:', error);
+                                            }
+                                          }
+                                          
+                                          setSeasons(updatedSeasons);
+                                        }
+                                      }
+                                    }}
+                                    className="bg-red-500 text-white p-1.5 rounded-lg hover:bg-red-600 transition-colors"
+                                    title="削除"
+                                  >
+                                    🗑️
+                                  </button>
+                                </div>
+                                
+                                <p className="text-sm dark:text-white mb-2 pr-12">「{quote.text}」</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400">
+                                  {quote.character ? `${quote.character} / ` : ''}{quote.animeTitle}
+                                </p>
+                              </div>
+                            ));
+                          })()}
+                        </div>
+                      ) : allQuotes.length > 0 ? (
+                        <p className="text-gray-500 dark:text-gray-400 text-center py-8">検索結果がありません</p>
+                      ) : (
+                        <p className="text-gray-500 dark:text-gray-400 text-center py-8">名言が登録されていません</p>
+                      )}
+                    </>
                   );
                 })()}
               </div>
@@ -2397,19 +2741,71 @@ export default function Home() {
                     + 新しいリストを作成
                   </button>
                 </div>
+                
+                {/* 並び替え */}
+                {evangelistLists.length > 0 && (
+                  <div className="flex gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
+                    <button
+                      onClick={() => setListSortType('date')}
+                      className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
+                        listSortType === 'date'
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                      }`}
+                    >
+                      作成日順
+                    </button>
+                    <button
+                      onClick={() => setListSortType('title')}
+                      className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
+                        listSortType === 'title'
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                      }`}
+                    >
+                      タイトル順
+                    </button>
+                    <button
+                      onClick={() => setListSortType('count')}
+                      className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
+                        listSortType === 'count'
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                      }`}
+                    >
+                      作品数順
+                    </button>
+                  </div>
+                )}
+                
                 {evangelistLists.length > 0 ? (
                   <div className="space-y-3">
-                    {evangelistLists.map((list) => (
-                      <div
-                        key={list.id}
-                        onClick={() => setSelectedList(list)}
-                        className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl p-4 shadow-md cursor-pointer hover:scale-105 transition-transform"
-                      >
-                        <h3 className="font-bold text-white mb-1">{list.title}</h3>
-                        <p className="text-white/80 text-sm mb-2">{list.description}</p>
-                        <p className="text-white/60 text-xs">{list.animeIds.length}作品</p>
-                      </div>
-                    ))}
+                    {(() => {
+                      const sortedLists = [...evangelistLists].sort((a, b) => {
+                        switch (listSortType) {
+                          case 'date':
+                            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+                          case 'title':
+                            return a.title.localeCompare(b.title, 'ja');
+                          case 'count':
+                            return b.animeIds.length - a.animeIds.length;
+                          default:
+                            return 0;
+                        }
+                      });
+                      
+                      return sortedLists.map((list) => (
+                        <div
+                          key={list.id}
+                          onClick={() => setSelectedList(list)}
+                          className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl p-4 shadow-md cursor-pointer hover:scale-105 transition-transform"
+                        >
+                          <h3 className="font-bold text-white mb-1">{list.title}</h3>
+                          <p className="text-white/80 text-sm mb-2">{list.description}</p>
+                          <p className="text-white/60 text-xs">{list.animeIds.length}作品</p>
+                        </div>
+                      ));
+                    })()}
                   </div>
                 ) : (
                   <p className="text-gray-500 dark:text-gray-400 text-center py-8">布教リストが作成されていません</p>
@@ -2418,7 +2814,18 @@ export default function Home() {
             )}
 
             {collectionSubTab === 'music' && (
-              <MusicTab allAnimes={allAnimes} seasons={seasons} setSeasons={setSeasons} />
+              <MusicTab 
+                allAnimes={allAnimes} 
+                seasons={seasons} 
+                setSeasons={setSeasons}
+                setSelectedAnime={setSelectedAnime}
+                setSongType={setSongType}
+                setNewSongTitle={setNewSongTitle}
+                setNewSongArtist={setNewSongArtist}
+                setShowSongModal={setShowSongModal}
+                user={user}
+                supabase={supabase}
+              />
             )}
           </>
         )}
@@ -2426,17 +2833,13 @@ export default function Home() {
         {activeTab === 'profile' && (
           <ProfileTab
             allAnimes={allAnimes}
+            seasons={seasons}
             userName={userName}
             userIcon={userIcon}
             averageRating={averageRating}
             isDarkMode={isDarkMode}
             setIsDarkMode={setIsDarkMode}
             setShowSettings={setShowSettings}
-            evangelistLists={evangelistLists}
-            setEvangelistLists={setEvangelistLists}
-            setSelectedAnime={setSelectedAnime}
-            favoriteCharacters={favoriteCharacters}
-            setFavoriteCharacters={setFavoriteCharacters}
             handleLogout={handleLogout}
           />
         )}
@@ -2454,6 +2857,301 @@ export default function Home() {
           >
             <h2 className="text-xl font-bold mb-4 dark:text-white">新しいアニメを追加</h2>
             
+            {/* モード切り替えタブ */}
+            <div className="flex gap-2 mb-4">
+              <button
+                onClick={() => setAddModalMode('search')}
+                className={`flex-1 px-4 py-2 rounded-xl font-medium transition-all ${
+                  addModalMode === 'search'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                タイトル検索
+              </button>
+              <button
+                onClick={() => setAddModalMode('season')}
+                className={`flex-1 px-4 py-2 rounded-xl font-medium transition-all ${
+                  addModalMode === 'season'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                クール検索
+              </button>
+            </div>
+            
+            {/* クール検索モード */}
+            {addModalMode === 'season' && (
+              <div className="mb-4 space-y-4">
+                {/* クール選択 */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      年
+                    </label>
+                    <select
+                      value={selectedYear}
+                      onChange={(e) => setSelectedYear(Number(e.target.value))}
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
+                    >
+                      {Array.from({ length: new Date().getFullYear() - 1970 + 1 }, (_, i) => new Date().getFullYear() - i).map(year => (
+                        <option key={year} value={year}>{year}年</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      シーズン
+                    </label>
+                    <select
+                      value={selectedSeason || ''}
+                      onChange={(e) => setSelectedSeason(e.target.value as 'SPRING' | 'SUMMER' | 'FALL' | 'WINTER' | null)}
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
+                    >
+                      <option value="">選択してください</option>
+                      <option value="SPRING">春</option>
+                      <option value="SUMMER">夏</option>
+                      <option value="FALL">秋</option>
+                      <option value="WINTER">冬</option>
+                    </select>
+                  </div>
+                </div>
+                
+                {/* 検索ボタン */}
+                <button
+                  onClick={async () => {
+                    if (selectedSeason) {
+                      setIsSeasonSearching(true);
+                      setSeasonSearchPage(1);
+                      setSelectedSeasonAnimeIds(new Set());
+                      try {
+                        const result = await searchAnimeBySeason(selectedSeason, selectedYear, 1, 50);
+                        setSeasonSearchResults(result.media);
+                        setHasMoreSeasonResults(result.pageInfo.hasNextPage);
+                      } catch (error) {
+                        console.error('Failed to search anime by season:', error);
+                      } finally {
+                        setIsSeasonSearching(false);
+                      }
+                    }
+                  }}
+                  disabled={!selectedSeason || isSeasonSearching}
+                  className="w-full px-4 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                  {isSeasonSearching ? '検索中...' : 'クールを検索'}
+                </button>
+                
+                {/* 検索結果 */}
+                {seasonSearchResults.length > 0 && !isSeasonSearching && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                        検索結果: {seasonSearchResults.length}件
+                      </p>
+                      <button
+                        onClick={() => {
+                          if (selectedSeasonAnimeIds.size === seasonSearchResults.length) {
+                            setSelectedSeasonAnimeIds(new Set());
+                          } else {
+                            setSelectedSeasonAnimeIds(new Set(seasonSearchResults.map(r => r.id)));
+                          }
+                        }}
+                        className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+                      >
+                        {selectedSeasonAnimeIds.size === seasonSearchResults.length ? 'すべて解除' : 'すべて選択'}
+                      </button>
+                    </div>
+                    
+                    <div className="max-h-96 overflow-y-auto space-y-2">
+                      {seasonSearchResults.map((result) => {
+                        const isSelected = selectedSeasonAnimeIds.has(result.id);
+                        return (
+                          <label
+                            key={result.id}
+                            className={`flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                              isSelected
+                                ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-900/30'
+                                : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-700 hover:border-indigo-300 dark:hover:border-indigo-600'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                const newSet = new Set(selectedSeasonAnimeIds);
+                                if (e.target.checked) {
+                                  newSet.add(result.id);
+                                } else {
+                                  newSet.delete(result.id);
+                                }
+                                setSelectedSeasonAnimeIds(newSet);
+                              }}
+                              className="w-5 h-5 text-indigo-600 rounded focus:ring-indigo-500"
+                            />
+                            <img
+                              src={result.coverImage?.large || result.coverImage?.medium || '🎬'}
+                              alt={result.title?.native || result.title?.romaji}
+                              className="w-16 h-24 object-cover rounded flex-shrink-0"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="96"><rect fill="%23ddd" width="64" height="96"/></svg>';
+                              }}
+                            />
+                            <div className="flex-1 min-w-0">
+                              <p className="font-bold text-sm dark:text-white truncate">
+                                {result.title?.native || result.title?.romaji}
+                              </p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                {result.format || ''} {result.episodes ? `全${result.episodes}話` : ''}
+                              </p>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    
+                    {/* 一括登録ボタン */}
+                    {selectedSeasonAnimeIds.size > 0 && (
+                      <button
+                        onClick={async () => {
+                          const selectedAnimes = seasonSearchResults.filter(r => selectedSeasonAnimeIds.has(r.id));
+                          const maxId = Math.max(...seasons.flatMap(s => s.animes).map(a => a.id), 0);
+                          
+                          // シーズン名を生成（例: "2024年秋"）
+                          const seasonNameMap: { [key: string]: string } = {
+                            'SPRING': '春',
+                            'SUMMER': '夏',
+                            'FALL': '秋',
+                            'WINTER': '冬',
+                          };
+                          const seasonName = `${selectedYear}年${seasonNameMap[selectedSeason!]}`;
+                          
+                          // 既存のシーズンを探す、なければ作成
+                          let targetSeason = seasons.find(s => s.name === seasonName);
+                          if (!targetSeason) {
+                            targetSeason = { name: seasonName, animes: [] };
+                            setSeasons([...seasons, targetSeason]);
+                          }
+                          
+                          // アニメを追加（評価は0、watchedはfalse）
+                          const newAnimes: Anime[] = selectedAnimes.map((result, index) => {
+                            const seriesName = extractSeriesName(result.title?.native || result.title?.romaji || '');
+                            return {
+                              id: maxId + index + 1,
+                              title: result.title?.native || result.title?.romaji || '',
+                              image: result.coverImage?.large || result.coverImage?.medium || '🎬',
+                              rating: 0, // 未評価
+                              watched: false,
+                              rewatchCount: 1,
+                              tags: result.genres?.map((g: string) => translateGenre(g)).slice(0, 3) || [],
+                              seriesName,
+                              studios: result.studios?.nodes?.map((s: any) => s.name) || [],
+                            };
+                          });
+                          
+                          const updatedSeasons = seasons.map(season =>
+                            season.name === seasonName
+                              ? { ...season, animes: [...season.animes, ...newAnimes] }
+                              : season
+                          );
+                          
+                          // 新しいシーズンが追加された場合は展開状態にする
+                          const newExpandedSeasons = new Set(expandedSeasons);
+                          if (!seasons.find(s => s.name === seasonName)) {
+                            newExpandedSeasons.add(seasonName);
+                          } else {
+                            // 既存のシーズンでも展開状態を維持
+                            newExpandedSeasons.add(seasonName);
+                          }
+                          setExpandedSeasons(newExpandedSeasons);
+                          
+                          // Supabaseに保存（ログイン時のみ）
+                          if (user) {
+                            try {
+                              const supabaseData = newAnimes.map(anime => 
+                                animeToSupabase(anime, seasonName, user.id)
+                              );
+                              
+                              console.group('🔍 Supabase Insert Debug');
+                              console.log('📊 送信データ:', {
+                                table: 'animes',
+                                dataCount: supabaseData.length,
+                                userId: user.id,
+                                seasonName: seasonName,
+                              });
+                              console.log('📝 最初のアイテム:', supabaseData[0]);
+                              console.log('📝 すべてのデータ:', supabaseData);
+                              
+                              const { data, error } = await supabase
+                                .from('animes')
+                                .insert(supabaseData)
+                                .select();
+                              
+                              if (error) {
+                                console.error('❌ Supabase Error:', error);
+                                console.error('📋 Error Properties:', {
+                                  message: error.message,
+                                  details: error.details,
+                                  hint: error.hint,
+                                  code: error.code,
+                                });
+                                console.groupEnd();
+                                throw error;
+                              }
+                              
+                              console.log('✅ Success:', data);
+                              console.groupEnd();
+                            } catch (error: any) {
+                              console.group('❌ Error Catch Block');
+                              console.error('Error Type:', typeof error);
+                              console.error('Error Value:', error);
+                              
+                              // エラーオブジェクトのすべてのプロパティを確認
+                              if (error) {
+                                const errorProps: Record<string, any> = {};
+                                for (const key in error) {
+                                  try {
+                                    errorProps[key] = error[key];
+                                  } catch (e) {
+                                    errorProps[key] = '[読み取り不可]';
+                                  }
+                                }
+                                console.error('Error Properties:', errorProps);
+                              }
+                              
+                              // エラーの文字列表現を試す
+                              try {
+                                console.error('Error toString:', String(error));
+                              } catch (e) {
+                                console.error('toString failed');
+                              }
+                              
+                              console.groupEnd();
+                              
+                              const errorMessage = error?.message || error?.details || error?.hint || String(error) || '不明なエラー';
+                              alert(`アニメの保存に失敗しました\n\nエラー: ${errorMessage}\n\n詳細はコンソール（F12）を確認してください。`);
+                            }
+                          }
+                          
+                          setSeasons(updatedSeasons);
+                          setShowAddForm(false);
+                          setSelectedSeasonAnimeIds(new Set());
+                          setSeasonSearchResults([]);
+                          setAddModalMode('search');
+                        }}
+                        className="w-full px-4 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors"
+                      >
+                        {selectedSeasonAnimeIds.size}件のアニメを登録
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {/* タイトル検索モード */}
+            {addModalMode === 'search' && (
+              <div>
             {/* 検索バー */}
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -2530,7 +3228,7 @@ export default function Home() {
                           <div className="flex flex-wrap gap-1 mt-1">
                             {result.genres.slice(0, 3).map((genre: string) => (
                               <span key={genre} className="text-xs bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded-full">
-                                {genre}
+                                {translateGenre(genre)}
                               </span>
                             ))}
                           </div>
@@ -2658,12 +3356,16 @@ export default function Home() {
                     // 選択された検索結果からジャンルをタグとして取得
                     const tags: string[] = [];
                     if (selectedSearchResult?.genres && selectedSearchResult.genres.length > 0) {
-                      // ジャンルをタグとして追加（利用可能なタグにマッピング）
+                      // ジャンルをタグとして追加（日本語化して利用可能なタグにマッピング）
                       selectedSearchResult.genres.forEach((genre: string) => {
+                        const translatedGenre = translateGenre(genre);
                         // ジャンルを利用可能なタグにマッピング（完全一致する場合は追加）
-                        const matchingTag = availableTags.find(t => t.label === genre);
+                        const matchingTag = availableTags.find(t => t.label === translatedGenre);
                         if (matchingTag) {
                           tags.push(matchingTag.value);
+                        } else {
+                          // マッチしない場合は翻訳されたジャンルをそのまま追加
+                          tags.push(translatedGenre);
                         }
                       });
                     }
@@ -2675,6 +3377,12 @@ export default function Home() {
                       seriesName = extractSeriesName(title);
                     }
                     
+                    // 制作会社を取得（検索結果から）
+                    const studios: string[] = [];
+                    if (selectedSearchResult?.studios?.nodes && Array.isArray(selectedSearchResult.studios.nodes)) {
+                      studios.push(...selectedSearchResult.studios.nodes.map((s: any) => s.name));
+                    }
+                    
                     const newAnime: Anime = {
                       id: maxId + 1,
                       title: newAnimeTitle.trim(),
@@ -2684,6 +3392,7 @@ export default function Home() {
                       rewatchCount: 1,
                       tags: tags.length > 0 ? tags : undefined,
                       seriesName: seriesName,
+                      studios: studios.length > 0 ? studios : undefined,
                     };
                     
                     // シーズン名を決定（検索結果から取得、または既存のシーズン）
@@ -2770,6 +3479,171 @@ export default function Home() {
                 className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors"
               >
                 追加
+              </button>
+            </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 感想投稿モーダル */}
+      {showReviewModal && selectedAnime && (
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={() => setShowReviewModal(false)}
+        >
+          <div 
+            className="bg-white dark:bg-gray-800 rounded-2xl max-w-sm w-full p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-xl font-bold mb-4 dark:text-white">感想を投稿</h2>
+            
+            {/* モード切り替え */}
+            <div className="flex gap-2 mb-4">
+              <button
+                onClick={() => {
+                  setReviewMode('overall');
+                  setNewReviewEpisodeNumber(undefined);
+                }}
+                className={`flex-1 px-4 py-2 rounded-xl font-medium transition-all ${
+                  reviewMode === 'overall'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                全体感想
+              </button>
+              <button
+                onClick={() => setReviewMode('episode')}
+                className={`flex-1 px-4 py-2 rounded-xl font-medium transition-all ${
+                  reviewMode === 'episode'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                話数感想
+              </button>
+            </div>
+
+            {/* 話数選択（話数感想の場合） */}
+            {reviewMode === 'episode' && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  話数
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  value={newReviewEpisodeNumber || ''}
+                  onChange={(e) => setNewReviewEpisodeNumber(e.target.value ? Number(e.target.value) : undefined)}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
+                  placeholder="例: 1"
+                />
+              </div>
+            )}
+
+            {/* 感想本文 */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                感想
+              </label>
+              <textarea
+                value={newReviewContent}
+                onChange={(e) => setNewReviewContent(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white min-h-[120px]"
+                placeholder="感想を入力してください..."
+              />
+            </div>
+
+            {/* ネタバレチェック */}
+            <div className="mb-6">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={newReviewContainsSpoiler}
+                  onChange={(e) => setNewReviewContainsSpoiler(e.target.checked)}
+                  className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
+                />
+                <span className="text-sm text-gray-700 dark:text-gray-300">
+                  ネタバレを含む
+                </span>
+              </label>
+            </div>
+
+            {/* ボタン */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowReviewModal(false);
+                  setNewReviewContent('');
+                  setNewReviewContainsSpoiler(false);
+                  setNewReviewEpisodeNumber(undefined);
+                }}
+                className="flex-1 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 py-3 rounded-xl font-bold hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={async () => {
+                  if (!newReviewContent.trim() || !user || !selectedAnime) return;
+                  
+                  if (reviewMode === 'episode' && !newReviewEpisodeNumber) {
+                    alert('話数を入力してください');
+                    return;
+                  }
+
+                  try {
+                    // アニメのUUIDを取得
+                    const { data: animeData, error: animeError } = await supabase
+                      .from('animes')
+                      .select('id')
+                      .eq('id', selectedAnime.id)
+                      .eq('user_id', user.id)
+                      .single();
+                    
+                    if (animeError || !animeData) {
+                      console.error('Failed to find anime:', animeError);
+                      return;
+                    }
+                    
+                    const animeUuid = animeData.id;
+                    
+                    // 感想を投稿
+                    const { data: reviewData, error: reviewError } = await supabase
+                      .from('reviews')
+                      .insert({
+                        anime_id: animeUuid,
+                        user_id: user.id,
+                        user_name: userName,
+                        user_icon: userIcon,
+                        type: reviewMode,
+                        episode_number: reviewMode === 'episode' ? newReviewEpisodeNumber : null,
+                        content: newReviewContent.trim(),
+                        contains_spoiler: newReviewContainsSpoiler,
+                      })
+                      .select()
+                      .single();
+                    
+                    if (reviewError) throw reviewError;
+                    
+                    // 感想を再読み込み
+                    await loadReviews(selectedAnime.id);
+                    
+                    // モーダルを閉じる
+                    setShowReviewModal(false);
+                    setNewReviewContent('');
+                    setNewReviewContainsSpoiler(false);
+                    setNewReviewEpisodeNumber(undefined);
+                  } catch (error) {
+                    console.error('Failed to post review:', error);
+                    alert('感想の投稿に失敗しました');
+                  }
+                }}
+                disabled={!newReviewContent.trim() || (reviewMode === 'episode' && !newReviewEpisodeNumber)}
+                className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+              >
+                投稿
               </button>
             </div>
           </div>
@@ -2955,11 +3829,58 @@ export default function Home() {
           onClick={() => setSelectedAnime(null)}
         >
           <div 
-            className="bg-white dark:bg-gray-800 rounded-2xl max-w-sm w-full p-6"
+            className="bg-white dark:bg-gray-800 rounded-2xl max-w-sm w-full max-h-[90vh] overflow-y-auto p-6"
             onClick={(e) => e.stopPropagation()}
           >
+            {/* タブ切り替え */}
+            <div className="flex gap-2 mb-4 border-b dark:border-gray-700 pb-2">
+              <button
+                onClick={() => setAnimeDetailTab('info')}
+                className={`flex-1 px-4 py-2 rounded-xl font-medium transition-all ${
+                  animeDetailTab === 'info'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                基本情報
+              </button>
+              <button
+                onClick={() => setAnimeDetailTab('reviews')}
+                className={`flex-1 px-4 py-2 rounded-xl font-medium transition-all ${
+                  animeDetailTab === 'reviews'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                }`}
+              >
+                感想
+              </button>
+            </div>
+
+            {/* 基本情報タブ */}
+            {animeDetailTab === 'info' && (
+              <>
             <div className="text-center mb-4">
-              <span className="text-6xl">{selectedAnime.image}</span>
+              {(() => {
+                const isImageUrl = selectedAnime.image && (selectedAnime.image.startsWith('http://') || selectedAnime.image.startsWith('https://'));
+                return isImageUrl ? (
+                  <div className="flex justify-center mb-3">
+                    <img
+                      src={selectedAnime.image}
+                      alt={selectedAnime.title}
+                      className="w-32 h-44 object-cover rounded-xl shadow-lg"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                        const parent = (e.target as HTMLImageElement).parentElement;
+                        if (parent) {
+                          parent.innerHTML = '<span class="text-6xl">🎬</span>';
+                        }
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <span className="text-6xl block mb-3">{selectedAnime.image || '🎬'}</span>
+                );
+              })()}
               <h3 className="text-xl font-bold mt-2 dark:text-white">{selectedAnime.title}</h3>
             </div>
             
@@ -3163,7 +4084,22 @@ export default function Home() {
               
               {/* OP */}
               <div className="mb-3">
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">OP</p>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">OP</p>
+                  {!selectedAnime.songs?.op && (
+                    <button
+                      onClick={() => {
+                        setSongType('op');
+                        setNewSongTitle('');
+                        setNewSongArtist('');
+                        setShowSongModal(true);
+                      }}
+                      className="text-xs bg-indigo-600 text-white px-3 py-1 rounded-lg hover:bg-indigo-700 transition-colors"
+                    >
+                      + 登録
+                    </button>
+                  )}
+                </div>
                 {selectedAnime.songs?.op ? (
                   <div className="bg-gradient-to-r from-orange-100 to-red-100 dark:from-orange-900/30 dark:to-red-900/30 rounded-lg p-3">
                     <div className="flex items-center justify-between mb-2">
@@ -3287,15 +4223,77 @@ export default function Home() {
                         </button>
                       ))}
                     </div>
+                    <button
+                      onClick={async () => {
+                        const updatedSeasons = seasons.map(season => ({
+                          ...season,
+                          animes: season.animes.map((anime) =>
+                            anime.id === selectedAnime.id
+                              ? {
+                                  ...anime,
+                                  songs: {
+                                    ...anime.songs,
+                                    op: undefined,
+                                  },
+                                }
+                              : anime
+                          ),
+                        }));
+                        
+                        // Supabaseを更新（ログイン時のみ）
+                        if (user) {
+                          try {
+                            const updatedSongs = {
+                              ...selectedAnime.songs,
+                              op: undefined,
+                            };
+                            const { error } = await supabase
+                              .from('animes')
+                              .update({ songs: updatedSongs })
+                              .eq('id', selectedAnime.id)
+                              .eq('user_id', user.id);
+                            
+                            if (error) throw error;
+                          } catch (error) {
+                            console.error('Failed to delete anime song in Supabase:', error);
+                          }
+                        }
+                        
+                        setSeasons(updatedSeasons);
+                        setSelectedAnime({
+                          ...selectedAnime,
+                          songs: {
+                            ...selectedAnime.songs,
+                            op: undefined,
+                          },
+                        });
+                      }}
+                      className="mt-2 text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-500"
+                    >
+                      削除
+                    </button>
                   </div>
-                ) : (
-                  <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-2">未登録</p>
-                )}
+                ) : null}
               </div>
 
               {/* ED */}
               <div className="mb-3">
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">ED</p>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">ED</p>
+                  {!selectedAnime.songs?.ed && (
+                    <button
+                      onClick={() => {
+                        setSongType('ed');
+                        setNewSongTitle('');
+                        setNewSongArtist('');
+                        setShowSongModal(true);
+                      }}
+                      className="text-xs bg-indigo-600 text-white px-3 py-1 rounded-lg hover:bg-indigo-700 transition-colors"
+                    >
+                      + 登録
+                    </button>
+                  )}
+                </div>
                 {selectedAnime.songs?.ed ? (
                   <div className="bg-gradient-to-r from-blue-100 to-purple-100 dark:from-blue-900/30 dark:to-purple-900/30 rounded-lg p-3">
                     <div className="flex items-center justify-between mb-2">
@@ -3419,10 +4417,57 @@ export default function Home() {
                         </button>
                       ))}
                     </div>
+                    <button
+                      onClick={async () => {
+                        const updatedSeasons = seasons.map(season => ({
+                          ...season,
+                          animes: season.animes.map((anime) =>
+                            anime.id === selectedAnime.id
+                              ? {
+                                  ...anime,
+                                  songs: {
+                                    ...anime.songs,
+                                    ed: undefined,
+                                  },
+                                }
+                              : anime
+                          ),
+                        }));
+                        
+                        // Supabaseを更新（ログイン時のみ）
+                        if (user) {
+                          try {
+                            const updatedSongs = {
+                              ...selectedAnime.songs,
+                              ed: undefined,
+                            };
+                            const { error } = await supabase
+                              .from('animes')
+                              .update({ songs: updatedSongs })
+                              .eq('id', selectedAnime.id)
+                              .eq('user_id', user.id);
+                            
+                            if (error) throw error;
+                          } catch (error) {
+                            console.error('Failed to delete anime song in Supabase:', error);
+                          }
+                        }
+                        
+                        setSeasons(updatedSeasons);
+                        setSelectedAnime({
+                          ...selectedAnime,
+                          songs: {
+                            ...selectedAnime.songs,
+                            ed: undefined,
+                          },
+                        });
+                      }}
+                      className="mt-2 text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-500"
+                    >
+                      削除
+                    </button>
                   </div>
-                ) : (
-                  <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-2">未登録</p>
-                )}
+                ) : null}
               </div>
             </div>
 
@@ -3588,6 +4633,1367 @@ export default function Home() {
               閉じる
             </button>
             </div>
+              </>
+            )}
+
+            {/* 感想タブ */}
+            {animeDetailTab === 'reviews' && (
+              <div className="space-y-4">
+                {/* フィルタとソート */}
+                <div className="flex gap-2 mb-4">
+                  <select
+                    value={reviewFilter}
+                    onChange={(e) => setReviewFilter(e.target.value as 'all' | 'overall' | 'episode')}
+                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white text-sm"
+                  >
+                    <option value="all">すべて</option>
+                    <option value="overall">全体感想のみ</option>
+                    <option value="episode">話数感想のみ</option>
+                  </select>
+                  <select
+                    value={reviewSort}
+                    onChange={(e) => setReviewSort(e.target.value as 'newest' | 'likes' | 'helpful')}
+                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white text-sm"
+                  >
+                    <option value="newest">新着順</option>
+                    <option value="likes">いいね順</option>
+                    <option value="helpful">役に立った順</option>
+                  </select>
+                </div>
+
+                {/* ネタバレ非表示設定 */}
+                <div className="flex items-center gap-2 mb-4">
+                  <input
+                    type="checkbox"
+                    id="spoilerHidden"
+                    checked={userSpoilerHidden}
+                    onChange={(e) => setUserSpoilerHidden(e.target.checked)}
+                    className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
+                  />
+                  <label htmlFor="spoilerHidden" className="text-sm text-gray-700 dark:text-gray-300">
+                    ネタバレを含む感想を非表示
+                  </label>
+                </div>
+
+                {/* 感想投稿ボタン */}
+                {user && (
+                  <button
+                    onClick={() => {
+                      setReviewMode('overall');
+                      setNewReviewContent('');
+                      setNewReviewContainsSpoiler(false);
+                      setNewReviewEpisodeNumber(undefined);
+                      setShowReviewModal(true);
+                    }}
+                    className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors mb-4"
+                  >
+                    + 感想を投稿
+                  </button>
+                )}
+
+                {/* 感想一覧 */}
+                {loadingReviews ? (
+                  <div className="text-center py-8">
+                    <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">読み込み中...</p>
+                  </div>
+                ) : (() => {
+                  // フィルタリング
+                  let filteredReviews = animeReviews.filter(review => {
+                    if (reviewFilter === 'overall' && review.type !== 'overall') return false;
+                    if (reviewFilter === 'episode' && review.type !== 'episode') return false;
+                    if (userSpoilerHidden && review.containsSpoiler) return false;
+                    return true;
+                  });
+
+                  // ソート
+                  filteredReviews.sort((a, b) => {
+                    switch (reviewSort) {
+                      case 'likes':
+                        return b.likes - a.likes;
+                      case 'helpful':
+                        return b.helpfulCount - a.helpfulCount;
+                      case 'newest':
+                      default:
+                        return b.createdAt.getTime() - a.createdAt.getTime();
+                    }
+                  });
+
+                  // 話数感想をエピソード別にグループ化
+                  const episodeReviews = filteredReviews.filter(r => r.type === 'episode');
+                  const overallReviews = filteredReviews.filter(r => r.type === 'overall');
+                  
+                  const episodeGroups = new Map<number, Review[]>();
+                  episodeReviews.forEach(review => {
+                    if (review.episodeNumber) {
+                      if (!episodeGroups.has(review.episodeNumber)) {
+                        episodeGroups.set(review.episodeNumber, []);
+                      }
+                      episodeGroups.get(review.episodeNumber)!.push(review);
+                    }
+                  });
+
+
+                  return filteredReviews.length > 0 ? (
+                    <div className="space-y-4">
+                      {/* 全体感想 */}
+                      {overallReviews.length > 0 && (
+                        <div>
+                          <h4 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">全体感想</h4>
+                          <div className="space-y-3">
+                            {overallReviews.map((review) => {
+                              const isExpanded = expandedSpoilerReviews.has(review.id);
+                              const shouldCollapse = review.containsSpoiler && !isExpanded;
+                              
+                              return (
+                                <div
+                                  key={review.id}
+                                  className={`bg-gray-50 dark:bg-gray-700 rounded-lg p-4 ${
+                                    review.containsSpoiler ? 'border-l-4 border-yellow-500' : ''
+                                  }`}
+                                >
+                                  {/* ネタバレ警告 */}
+                                  {review.containsSpoiler && (
+                                    <div className="bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-200 text-xs px-3 py-2 rounded mb-2 flex items-center gap-2">
+                                      <span>⚠️</span>
+                                      <span>ネタバレを含む感想です</span>
+                                    </div>
+                                  )}
+
+                                  {/* ユーザー情報 */}
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <span className="text-xl">{review.userIcon}</span>
+                                    <span className="font-bold text-sm dark:text-white">{review.userName}</span>
+                                    <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto">
+                                      {new Date(review.createdAt).toLocaleDateString('ja-JP')}
+                                    </span>
+                                  </div>
+
+                                  {/* 感想本文（折りたたみ可能） */}
+                                  {shouldCollapse ? (
+                                    <button
+                                      onClick={() => {
+                                        const newSet = new Set(expandedSpoilerReviews);
+                                        newSet.add(review.id);
+                                        setExpandedSpoilerReviews(newSet);
+                                      }}
+                                      className="w-full text-left text-sm text-indigo-600 dark:text-indigo-400 hover:underline py-2"
+                                    >
+                                      ▶ クリックして展開
+                                    </button>
+                                  ) : (
+                                    <>
+                                      <p className="text-sm dark:text-white mb-3 whitespace-pre-wrap">{review.content}</p>
+                                      {review.containsSpoiler && (
+                                        <button
+                                          onClick={() => {
+                                            const newSet = new Set(expandedSpoilerReviews);
+                                            newSet.delete(review.id);
+                                            setExpandedSpoilerReviews(newSet);
+                                          }}
+                                          className="text-xs text-gray-500 dark:text-gray-400 hover:underline"
+                                        >
+                                          ▲ 折りたたむ
+                                        </button>
+                                      )}
+                                    </>
+                                  )}
+
+                                  {/* いいね・役に立った */}
+                                  <div className="flex items-center gap-4 mt-3">
+                                    <button
+                                      onClick={async () => {
+                                        if (!user) return;
+                                        
+                                        try {
+                                          const { data: animeData } = await supabase
+                                            .from('animes')
+                                            .select('id')
+                                            .eq('id', selectedAnime.id)
+                                            .eq('user_id', user.id)
+                                            .single();
+                                          
+                                          if (!animeData) return;
+                                          
+                                          if (review.userLiked) {
+                                            await supabase
+                                              .from('review_likes')
+                                              .delete()
+                                              .eq('review_id', review.id)
+                                              .eq('user_id', user.id);
+                                          } else {
+                                            await supabase
+                                              .from('review_likes')
+                                              .insert({
+                                                review_id: review.id,
+                                                user_id: user.id,
+                                              });
+                                          }
+                                          
+                                          loadReviews(selectedAnime.id);
+                                        } catch (error) {
+                                          console.error('Failed to toggle like:', error);
+                                        }
+                                      }}
+                                      className={`flex items-center gap-1 text-sm ${
+                                        review.userLiked
+                                          ? 'text-red-500'
+                                          : 'text-gray-500 dark:text-gray-400'
+                                      }`}
+                                    >
+                                      <span>{review.userLiked ? '❤️' : '🤍'}</span>
+                                      <span>{review.likes}</span>
+                                    </button>
+                                    <button
+                                      onClick={async () => {
+                                        if (!user) return;
+                                        
+                                        try {
+                                          const { data: animeData } = await supabase
+                                            .from('animes')
+                                            .select('id')
+                                            .eq('id', selectedAnime.id)
+                                            .eq('user_id', user.id)
+                                            .single();
+                                          
+                                          if (!animeData) return;
+                                          
+                                          if (review.userHelpful) {
+                                            await supabase
+                                              .from('review_helpful')
+                                              .delete()
+                                              .eq('review_id', review.id)
+                                              .eq('user_id', user.id);
+                                          } else {
+                                            await supabase
+                                              .from('review_helpful')
+                                              .insert({
+                                                review_id: review.id,
+                                                user_id: user.id,
+                                              });
+                                          }
+                                          
+                                          loadReviews(selectedAnime.id);
+                                        } catch (error) {
+                                          console.error('Failed to toggle helpful:', error);
+                                        }
+                                      }}
+                                      className={`flex items-center gap-1 text-sm ${
+                                        review.userHelpful
+                                          ? 'text-blue-500'
+                                          : 'text-gray-500 dark:text-gray-400'
+                                      }`}
+                                    >
+                                      <span>👍</span>
+                                      <span>{review.helpfulCount}</span>
+                                    </button>
+
+                                    {/* 自分の感想の場合、編集・削除ボタン */}
+                                    {user && review.userId === user.id && (
+                                      <div className="ml-auto flex gap-2">
+                                        <button
+                                          onClick={() => {
+                                            setReviewMode(review.type);
+                                            setNewReviewContent(review.content);
+                                            setNewReviewContainsSpoiler(review.containsSpoiler);
+                                            setNewReviewEpisodeNumber(review.episodeNumber);
+                                            setShowReviewModal(true);
+                                          }}
+                                          className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+                                        >
+                                          編集
+                                        </button>
+                                        <button
+                                          onClick={async () => {
+                                            if (!confirm('この感想を削除しますか？')) return;
+                                            
+                                            try {
+                                              await supabase
+                                                .from('reviews')
+                                                .delete()
+                                                .eq('id', review.id);
+                                              
+                                              loadReviews(selectedAnime.id);
+                                            } catch (error) {
+                                              console.error('Failed to delete review:', error);
+                                            }
+                                          }}
+                                          className="text-xs text-red-500 hover:underline"
+                                        >
+                                          削除
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 話数感想（エピソード別にグループ化） */}
+                      {episodeGroups.size > 0 && (
+                        <div>
+                          <h4 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">話数感想</h4>
+                          {Array.from(episodeGroups.entries())
+                            .sort((a, b) => a[0] - b[0])
+                            .map(([episodeNumber, reviews]) => (
+                              <div key={episodeNumber} className="mb-4">
+                                <h5 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
+                                  第{episodeNumber}話の感想 ({reviews.length}件)
+                                </h5>
+                                <div className="space-y-3">
+                                  {reviews.map((review) => {
+                                    const isExpanded = expandedSpoilerReviews.has(review.id);
+                                    const shouldCollapse = review.containsSpoiler && !isExpanded;
+                                    
+                                    return (
+                                      <div
+                                        key={review.id}
+                                        className={`bg-gray-50 dark:bg-gray-700 rounded-lg p-4 ${
+                                          review.containsSpoiler ? 'border-l-4 border-yellow-500' : ''
+                                        }`}
+                                      >
+                                        {/* ネタバレ警告 */}
+                                        {review.containsSpoiler && (
+                                          <div className="bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-200 text-xs px-3 py-2 rounded mb-2 flex items-center gap-2">
+                                            <span>⚠️</span>
+                                            <span>ネタバレを含む感想です</span>
+                                          </div>
+                                        )}
+
+                                        {/* ユーザー情報 */}
+                                        <div className="flex items-center gap-2 mb-2">
+                                          <span className="text-xl">{review.userIcon}</span>
+                                          <span className="font-bold text-sm dark:text-white">{review.userName}</span>
+                                          <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto">
+                                            {new Date(review.createdAt).toLocaleDateString('ja-JP')}
+                                          </span>
+                                        </div>
+
+                                        {/* 感想本文（折りたたみ可能） */}
+                                        {shouldCollapse ? (
+                                          <button
+                                            onClick={() => {
+                                              const newSet = new Set(expandedSpoilerReviews);
+                                              newSet.add(review.id);
+                                              setExpandedSpoilerReviews(newSet);
+                                            }}
+                                            className="w-full text-left text-sm text-indigo-600 dark:text-indigo-400 hover:underline py-2"
+                                          >
+                                            ▶ クリックして展開
+                                          </button>
+                                        ) : (
+                                          <>
+                                            <p className="text-sm dark:text-white mb-3 whitespace-pre-wrap">{review.content}</p>
+                                            {review.containsSpoiler && (
+                                              <button
+                                                onClick={() => {
+                                                  const newSet = new Set(expandedSpoilerReviews);
+                                                  newSet.delete(review.id);
+                                                  setExpandedSpoilerReviews(newSet);
+                                                }}
+                                                className="text-xs text-gray-500 dark:text-gray-400 hover:underline"
+                                              >
+                                                ▲ 折りたたむ
+                                              </button>
+                                            )}
+                                          </>
+                                        )}
+
+                                        {/* いいね・役に立った */}
+                                        <div className="flex items-center gap-4 mt-3">
+                                          <button
+                                            onClick={async () => {
+                                              if (!user) return;
+                                              
+                                              try {
+                                                const { data: animeData } = await supabase
+                                                  .from('animes')
+                                                  .select('id')
+                                                  .eq('id', selectedAnime.id)
+                                                  .eq('user_id', user.id)
+                                                  .single();
+                                                
+                                                if (!animeData) return;
+                                                
+                                                if (review.userLiked) {
+                                                  await supabase
+                                                    .from('review_likes')
+                                                    .delete()
+                                                    .eq('review_id', review.id)
+                                                    .eq('user_id', user.id);
+                                                } else {
+                                                  await supabase
+                                                    .from('review_likes')
+                                                    .insert({
+                                                      review_id: review.id,
+                                                      user_id: user.id,
+                                                    });
+                                                }
+                                                
+                                                loadReviews(selectedAnime.id);
+                                              } catch (error) {
+                                                console.error('Failed to toggle like:', error);
+                                              }
+                                            }}
+                                            className={`flex items-center gap-1 text-sm ${
+                                              review.userLiked
+                                                ? 'text-red-500'
+                                                : 'text-gray-500 dark:text-gray-400'
+                                            }`}
+                                          >
+                                            <span>{review.userLiked ? '❤️' : '🤍'}</span>
+                                            <span>{review.likes}</span>
+                                          </button>
+                                          <button
+                                            onClick={async () => {
+                                              if (!user) return;
+                                              
+                                              try {
+                                                const { data: animeData } = await supabase
+                                                  .from('animes')
+                                                  .select('id')
+                                                  .eq('id', selectedAnime.id)
+                                                  .eq('user_id', user.id)
+                                                  .single();
+                                                
+                                                if (!animeData) return;
+                                                
+                                                if (review.userHelpful) {
+                                                  await supabase
+                                                    .from('review_helpful')
+                                                    .delete()
+                                                    .eq('review_id', review.id)
+                                                    .eq('user_id', user.id);
+                                                } else {
+                                                  await supabase
+                                                    .from('review_helpful')
+                                                    .insert({
+                                                      review_id: review.id,
+                                                      user_id: user.id,
+                                                    });
+                                                }
+                                                
+                                                loadReviews(selectedAnime.id);
+                                              } catch (error) {
+                                                console.error('Failed to toggle helpful:', error);
+                                              }
+                                            }}
+                                            className={`flex items-center gap-1 text-sm ${
+                                              review.userHelpful
+                                                ? 'text-blue-500'
+                                                : 'text-gray-500 dark:text-gray-400'
+                                            }`}
+                                          >
+                                            <span>👍</span>
+                                            <span>{review.helpfulCount}</span>
+                                          </button>
+
+                                          {/* 自分の感想の場合、編集・削除ボタン */}
+                                          {user && review.userId === user.id && (
+                                            <div className="ml-auto flex gap-2">
+                                              <button
+                                                onClick={() => {
+                                                  setReviewMode(review.type);
+                                                  setNewReviewContent(review.content);
+                                                  setNewReviewContainsSpoiler(review.containsSpoiler);
+                                                  setNewReviewEpisodeNumber(review.episodeNumber);
+                                                  setShowReviewModal(true);
+                                                }}
+                                                className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+                                              >
+                                                編集
+                                              </button>
+                                              <button
+                                                onClick={async () => {
+                                                  if (!confirm('この感想を削除しますか？')) return;
+                                                  
+                                                  try {
+                                                    await supabase
+                                                      .from('reviews')
+                                                      .delete()
+                                                      .eq('id', review.id);
+                                                    
+                                                    loadReviews(selectedAnime.id);
+                                                  } catch (error) {
+                                                    console.error('Failed to delete review:', error);
+                                                  }
+                                                }}
+                                                className="text-xs text-red-500 hover:underline"
+                                              >
+                                                削除
+                                              </button>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-center text-gray-500 dark:text-gray-400 py-8">
+                      {user ? 'まだ感想がありません。最初の感想を投稿してみましょう！' : 'ログインすると感想を投稿・閲覧できます'}
+                    </p>
+                  );
+                })()}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 布教リスト作成・編集モーダル */}
+      {showCreateListModal && (
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={() => setShowCreateListModal(false)}
+        >
+          <div 
+            className="bg-white dark:bg-gray-800 rounded-2xl max-w-sm w-full p-6 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-xl font-bold mb-4 dark:text-white">
+              {editingList ? 'リストを編集' : '新しいリストを作成'}
+            </h2>
+            
+            {/* タイトル入力 */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                タイトル
+              </label>
+              <input
+                type="text"
+                value={newListTitle}
+                onChange={(e) => setNewListTitle(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
+                placeholder="初心者におすすめ5選"
+              />
+            </div>
+
+            {/* 説明入力 */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                説明
+              </label>
+              <textarea
+                value={newListDescription}
+                onChange={(e) => setNewListDescription(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
+                placeholder="アニメ入門にぴったり"
+                rows={3}
+              />
+            </div>
+
+            {/* アニメ選択 */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                アニメを選択
+              </label>
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {allAnimes.map((anime) => (
+                  <label
+                    key={anime.id}
+                    className="flex items-center gap-2 p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedAnimeIds.includes(anime.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedAnimeIds([...selectedAnimeIds, anime.id]);
+                        } else {
+                          setSelectedAnimeIds(selectedAnimeIds.filter(id => id !== anime.id));
+                        }
+                      }}
+                      className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
+                    />
+                    <span className="text-sm dark:text-white">{anime.title}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowCreateListModal(false);
+                  setNewListTitle('');
+                  setNewListDescription('');
+                  setSelectedAnimeIds([]);
+                  setEditingList(null);
+                }}
+                className="flex-1 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 py-3 rounded-xl font-bold hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={() => {
+                  if (newListTitle.trim() && selectedAnimeIds.length > 0) {
+                    if (editingList) {
+                      // 編集
+                      const updatedLists = evangelistLists.map(list =>
+                        list.id === editingList.id
+                          ? {
+                              ...list,
+                              title: newListTitle.trim(),
+                              description: newListDescription.trim(),
+                              animeIds: selectedAnimeIds,
+                            }
+                          : list
+                      );
+                      setEvangelistLists(updatedLists);
+                    } else {
+                      // 新規作成
+                      const newList: EvangelistList = {
+                        id: Date.now(),
+                        title: newListTitle.trim(),
+                        description: newListDescription.trim(),
+                        animeIds: selectedAnimeIds,
+                        createdAt: new Date(),
+                      };
+                      setEvangelistLists([...evangelistLists, newList]);
+                    }
+                    setShowCreateListModal(false);
+                    setNewListTitle('');
+                    setNewListDescription('');
+                    setSelectedAnimeIds([]);
+                    setEditingList(null);
+                  }
+                }}
+                className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors"
+              >
+                {editingList ? '更新' : '作成'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 布教リスト詳細モーダル */}
+      {selectedList && (
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={() => setSelectedList(null)}
+        >
+          <div 
+            className="bg-white dark:bg-gray-800 rounded-2xl max-w-sm w-full p-6 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-xl font-bold mb-2 dark:text-white">{selectedList.title}</h2>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{selectedList.description}</p>
+            
+            {/* アニメ一覧 */}
+            <div className="mb-4">
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                {selectedList.animeIds.length}作品
+              </h3>
+              <div className="grid grid-cols-3 gap-3">
+                {selectedList.animeIds.map((animeId) => {
+                  const anime = allAnimes.find(a => a.id === animeId);
+                  if (!anime) return null;
+                  const isImageUrl = anime.image && (anime.image.startsWith('http://') || anime.image.startsWith('https://'));
+                  return (
+                    <div
+                      key={animeId}
+                      onClick={() => {
+                        setSelectedAnime(anime);
+                        setSelectedList(null);
+                      }}
+                      className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl p-3 text-white text-center cursor-pointer hover:scale-105 transition-transform"
+                    >
+                      {isImageUrl ? (
+                        <img
+                          src={anime.image}
+                          alt={anime.title}
+                          className="w-full h-16 object-cover rounded mb-1"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = 'none';
+                            const parent = (e.target as HTMLImageElement).parentElement;
+                            if (parent) {
+                              parent.innerHTML = '<div class="text-3xl mb-1">🎬</div><p class="text-xs font-bold truncate">' + anime.title + '</p>';
+                            }
+                          }}
+                        />
+                      ) : (
+                        <div className="text-3xl mb-1">{anime.image}</div>
+                      )}
+                      <p className="text-xs font-bold truncate">{anime.title}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={async () => {
+                  if (navigator.share) {
+                    try {
+                      const animeTitles = selectedList.animeIds
+                        .map(id => allAnimes.find(a => a.id === id)?.title)
+                        .filter(Boolean)
+                        .join('、');
+                      
+                      await navigator.share({
+                        title: selectedList.title,
+                        text: `${selectedList.description}\n\n${animeTitles}`,
+                      });
+                    } catch (error) {
+                      console.error('Share failed:', error);
+                    }
+                  } else {
+                    // フォールバック: テキストをクリップボードにコピー
+                    const animeTitles = selectedList.animeIds
+                      .map(id => allAnimes.find(a => a.id === id)?.title)
+                      .filter(Boolean)
+                      .join('、');
+                    const shareText = `${selectedList.title}\n${selectedList.description}\n\n${animeTitles}`;
+                    await navigator.clipboard.writeText(shareText);
+                    alert('リストをクリップボードにコピーしました');
+                  }
+                }}
+                className="flex-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 py-3 rounded-xl font-bold hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+              >
+                📤 シェア
+              </button>
+              <button
+                onClick={() => {
+                  setEditingList(selectedList);
+                  setNewListTitle(selectedList.title);
+                  setNewListDescription(selectedList.description);
+                  setSelectedAnimeIds(selectedList.animeIds);
+                  setSelectedList(null);
+                  setShowCreateListModal(true);
+                }}
+                className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors"
+              >
+                編集
+              </button>
+              <button
+                onClick={() => {
+                  setEvangelistLists(evangelistLists.filter(list => list.id !== selectedList.id));
+                  setSelectedList(null);
+                }}
+                className="flex-1 bg-red-500 text-white py-3 rounded-xl font-bold hover:bg-red-600 transition-colors"
+              >
+                削除
+              </button>
+            </div>
+            
+            <button
+              onClick={() => setSelectedList(null)}
+              className="w-full mt-3 text-gray-500 dark:text-gray-400 text-sm"
+            >
+              閉じる
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 推しキャラ追加モーダル */}
+      {showAddCharacterModal && (
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={() => setShowAddCharacterModal(false)}
+        >
+          <div 
+            className="bg-white dark:bg-gray-800 rounded-2xl max-w-sm w-full p-6 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-xl font-bold mb-4 dark:text-white">
+              {editingCharacter ? '推しを編集' : '推しを追加'}
+            </h2>
+            
+            {/* キャラ名入力 */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                キャラ名
+              </label>
+              <input
+                type="text"
+                value={newCharacterName}
+                onChange={(e) => setNewCharacterName(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
+                placeholder="キャラクター名"
+              />
+            </div>
+
+            {/* アニメ選択 */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                アニメ
+              </label>
+              <select
+                value={newCharacterAnimeId || ''}
+                onChange={(e) => setNewCharacterAnimeId(Number(e.target.value))}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
+              >
+                <option value="">選択してください</option>
+                {allAnimes.map((anime) => (
+                  <option key={anime.id} value={anime.id}>
+                    {anime.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* アイコン選択 */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                アイコン
+              </label>
+              <div className="grid grid-cols-8 gap-2">
+                {['👤', '👻', '🧝', '🎸', '👑', '🦄', '🌟', '💫', '⚡', '🔥', '💕', '❤️', '🎭', '🛡️', '😇', '🤡', '💀', '🎪', '🎨', '🎯', '🎬', '🎮'].map((icon) => (
+                  <button
+                    key={icon}
+                    onClick={() => setNewCharacterImage(icon)}
+                    className={`text-3xl p-2 rounded-lg transition-all ${
+                      newCharacterImage === icon
+                        ? 'bg-indigo-100 dark:bg-indigo-900 ring-2 ring-indigo-500'
+                        : 'bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600'
+                    }`}
+                  >
+                    {icon}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* カテゴリ選択 */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                カテゴリ
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {characterCategories.map((category) => (
+                  <button
+                    key={category.value}
+                    onClick={() => setNewCharacterCategory(category.value)}
+                    className={`p-2 rounded-lg text-sm font-medium transition-all ${
+                      newCharacterCategory === category.value
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                    }`}
+                  >
+                    {category.emoji} {category.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* タグ選択 */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                タグ
+              </label>
+              <div className="flex flex-wrap gap-2 mb-2">
+                {characterPresetTags.map((tag) => (
+                  <button
+                    key={tag}
+                    onClick={() => {
+                      if (newCharacterTags.includes(tag)) {
+                        setNewCharacterTags(newCharacterTags.filter(t => t !== tag));
+                      } else {
+                        setNewCharacterTags([...newCharacterTags, tag]);
+                      }
+                    }}
+                    className={`px-3 py-1 rounded-full text-sm transition-all ${
+                      newCharacterTags.includes(tag)
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                    }`}
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
+              
+              {/* カスタムタグ追加 */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newCustomTag}
+                  onChange={(e) => setNewCustomTag(e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter' && newCustomTag.trim() && !newCharacterTags.includes(newCustomTag.trim())) {
+                      setNewCharacterTags([...newCharacterTags, newCustomTag.trim()]);
+                      setNewCustomTag('');
+                    }
+                  }}
+                  className="flex-1 px-3 py-1 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white text-sm"
+                  placeholder="新しいタグを入力してEnter"
+                />
+              </div>
+              
+              {/* 選択中のタグ表示 */}
+              {newCharacterTags.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {newCharacterTags.map((tag, index) => (
+                    <span
+                      key={index}
+                      className="inline-flex items-center gap-1 bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 px-2 py-1 rounded-full text-xs"
+                    >
+                      {tag}
+                      <button
+                        onClick={() => setNewCharacterTags(newCharacterTags.filter((_, i) => i !== index))}
+                        className="hover:text-red-500"
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowAddCharacterModal(false);
+                  setNewCharacterName('');
+                  setNewCharacterAnimeId(null);
+                  setNewCharacterImage('👤');
+                  setNewCharacterCategory('');
+                  setNewCharacterTags([]);
+                  setNewCustomTag('');
+                  setEditingCharacter(null);
+                }}
+                className="flex-1 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 py-3 rounded-xl font-bold hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={() => {
+                  if (newCharacterName.trim() && newCharacterAnimeId) {
+                    const selectedAnime = allAnimes.find(a => a.id === newCharacterAnimeId);
+                    if (selectedAnime) {
+                      if (editingCharacter) {
+                        // 編集
+                        const updatedCharacter: FavoriteCharacter = {
+                          ...editingCharacter,
+                          name: newCharacterName.trim(),
+                          animeId: newCharacterAnimeId,
+                          animeName: selectedAnime.title,
+                          image: newCharacterImage,
+                          category: newCharacterCategory,
+                          tags: newCharacterTags,
+                        };
+                        setFavoriteCharacters(favoriteCharacters.map(c => 
+                          c.id === editingCharacter.id ? updatedCharacter : c
+                        ));
+                      } else {
+                        // 新規追加
+                        const newCharacter: FavoriteCharacter = {
+                          id: Date.now(),
+                          name: newCharacterName.trim(),
+                          animeId: newCharacterAnimeId,
+                          animeName: selectedAnime.title,
+                          image: newCharacterImage,
+                          category: newCharacterCategory,
+                          tags: newCharacterTags,
+                        };
+                        setFavoriteCharacters([...favoriteCharacters, newCharacter]);
+                      }
+                      setShowAddCharacterModal(false);
+                      setNewCharacterName('');
+                      setNewCharacterAnimeId(null);
+                      setNewCharacterImage('👤');
+                      setNewCharacterCategory('');
+                      setNewCharacterTags([]);
+                      setNewCustomTag('');
+                      setEditingCharacter(null);
+                    }
+                  }
+                }}
+                className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors"
+              >
+                {editingCharacter ? '更新' : '追加'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 名言追加・編集モーダル */}
+      {showAddQuoteModal && (
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={() => {
+            setShowAddQuoteModal(false);
+            setEditingQuote(null);
+            setNewQuoteAnimeId(null);
+            setNewQuoteText('');
+            setNewQuoteCharacter('');
+          }}
+        >
+          <div 
+            className="bg-white dark:bg-gray-800 rounded-2xl max-w-sm w-full p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-xl font-bold mb-4 dark:text-white">
+              {editingQuote ? '名言を編集' : '名言を追加'}
+            </h2>
+            
+            {/* アニメ選択 */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                アニメ
+              </label>
+              <select
+                value={editingQuote ? editingQuote.animeId : (newQuoteAnimeId || '')}
+                onChange={(e) => {
+                  if (editingQuote) {
+                    setEditingQuote({ ...editingQuote, animeId: Number(e.target.value) });
+                  } else {
+                    setNewQuoteAnimeId(Number(e.target.value) || null);
+                  }
+                }}
+                disabled={!!editingQuote}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white disabled:bg-gray-200 dark:disabled:bg-gray-600"
+              >
+                <option value="">選択してください</option>
+                {allAnimes.map((anime) => (
+                  <option key={anime.id} value={anime.id}>
+                    {anime.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* セリフ入力 */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                セリフ
+              </label>
+              <textarea
+                value={newQuoteText}
+                onChange={(e) => setNewQuoteText(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
+                placeholder="名言を入力"
+                rows={3}
+              />
+            </div>
+
+            {/* キャラクター名入力 */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                キャラクター名（任意）
+              </label>
+              <input
+                type="text"
+                value={newQuoteCharacter}
+                onChange={(e) => setNewQuoteCharacter(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
+                placeholder="キャラクター名"
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowAddQuoteModal(false);
+                  setEditingQuote(null);
+                  setNewQuoteText('');
+                  setNewQuoteCharacter('');
+                }}
+                className="flex-1 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 py-3 rounded-xl font-bold hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={async () => {
+                  const selectElement = document.querySelector('select[data-quote-anime]') as HTMLSelectElement;
+                  const animeId = editingQuote ? editingQuote.animeId : (selectElement?.value ? Number(selectElement.value) : null);
+                  if (newQuoteText.trim() && animeId) {
+                    const anime = allAnimes.find(a => a.id === animeId);
+                    if (anime) {
+                      if (editingQuote) {
+                        // 編集
+                        const updatedQuotes = [...(anime.quotes || [])];
+                        updatedQuotes[editingQuote.quoteIndex] = {
+                          text: newQuoteText.trim(),
+                          character: newQuoteCharacter.trim() || undefined,
+                        };
+                        
+                        const updatedSeasons = seasons.map(season => ({
+                          ...season,
+                          animes: season.animes.map(a =>
+                            a.id === animeId
+                              ? { ...a, quotes: updatedQuotes }
+                              : a
+                          ),
+                        }));
+                        
+                        // Supabaseを更新（ログイン時のみ）
+                        if (user) {
+                          try {
+                            const { error } = await supabase
+                              .from('animes')
+                              .update({ quotes: updatedQuotes })
+                              .eq('id', animeId)
+                              .eq('user_id', user.id);
+                            
+                            if (error) throw error;
+                          } catch (error) {
+                            console.error('Failed to update quote in Supabase:', error);
+                          }
+                        }
+                        
+                        setSeasons(updatedSeasons);
+                      } else {
+                        // 新規追加
+                        const newQuotes = [...(anime.quotes || []), {
+                          text: newQuoteText.trim(),
+                          character: newQuoteCharacter.trim() || undefined,
+                        }];
+                        
+                        const updatedSeasons = seasons.map(season => ({
+                          ...season,
+                          animes: season.animes.map(a =>
+                            a.id === animeId
+                              ? { ...a, quotes: newQuotes }
+                              : a
+                          ),
+                        }));
+                        
+                        // Supabaseを更新（ログイン時のみ）
+                        if (user) {
+                          try {
+                            const { error } = await supabase
+                              .from('animes')
+                              .update({ quotes: newQuotes })
+                              .eq('id', animeId)
+                              .eq('user_id', user.id);
+                            
+                            if (error) throw error;
+                          } catch (error) {
+                            console.error('Failed to add quote to Supabase:', error);
+                          }
+                        }
+                        
+                        setSeasons(updatedSeasons);
+                      }
+                      
+                      setShowAddQuoteModal(false);
+                      setEditingQuote(null);
+                      setNewQuoteAnimeId(null);
+                      setNewQuoteText('');
+                      setNewQuoteCharacter('');
+                    }
+                  }
+                }}
+                disabled={!newQuoteText.trim() || (!editingQuote && !newQuoteAnimeId)}
+                className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+              >
+                {editingQuote ? '更新' : '追加'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 主題歌登録モーダル */}
+      {showSongModal && (
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={() => {
+            setShowSongModal(false);
+            setSongType(null);
+            setSelectedAnime(null);
+            setNewSongTitle('');
+            setNewSongArtist('');
+          }}
+        >
+          <div 
+            className="bg-white dark:bg-gray-800 rounded-2xl max-w-sm w-full p-6 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-xl font-bold mb-4 dark:text-white">
+              {songType ? `${songType === 'op' ? 'OP' : 'ED'}を登録` : '主題歌を追加'}
+            </h2>
+            
+            {/* アニメ選択（selectedAnimeがない場合） */}
+            {!selectedAnime && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  アニメ
+                </label>
+                <select
+                  onChange={(e) => {
+                    const anime = allAnimes.find(a => a.id === Number(e.target.value));
+                    if (anime) {
+                      setSelectedAnime(anime);
+                    }
+                  }}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
+                >
+                  <option value="">選択してください</option>
+                  {allAnimes.map((anime) => (
+                    <option key={anime.id} value={anime.id}>
+                      {anime.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* アニメ表示（selectedAnimeがある場合） */}
+            {selectedAnime && (
+              <div className="mb-4 p-3 bg-gray-100 dark:bg-gray-700 rounded-xl">
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">アニメ</p>
+                <p className="font-bold dark:text-white">{selectedAnime.title}</p>
+                <button
+                  onClick={() => setSelectedAnime(null)}
+                  className="text-xs text-indigo-600 dark:text-indigo-400 mt-1"
+                >
+                  変更
+                </button>
+              </div>
+            )}
+
+            {/* タイプ選択（songTypeがない場合） */}
+            {selectedAnime && !songType && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  タイプ
+                </label>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setSongType('op')}
+                    className="flex-1 px-4 py-2 rounded-xl font-bold transition-colors bg-orange-500 text-white hover:bg-orange-600"
+                  >
+                    OP
+                  </button>
+                  <button
+                    onClick={() => setSongType('ed')}
+                    className="flex-1 px-4 py-2 rounded-xl font-bold transition-colors bg-blue-500 text-white hover:bg-blue-600"
+                  >
+                    ED
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* タイプ表示（songTypeがある場合） */}
+            {songType && (
+              <div className="mb-4 p-3 bg-gray-100 dark:bg-gray-700 rounded-xl">
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">タイプ</p>
+                <p className="font-bold dark:text-white">{songType.toUpperCase()}</p>
+                <button
+                  onClick={() => setSongType(null)}
+                  className="text-xs text-indigo-600 dark:text-indigo-400 mt-1"
+                >
+                  変更
+                </button>
+              </div>
+            )}
+            
+            {/* 曲名入力 */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                曲名
+              </label>
+              <input
+                type="text"
+                value={newSongTitle}
+                onChange={(e) => setNewSongTitle(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
+                placeholder="曲名を入力"
+              />
+            </div>
+
+            {/* アーティスト名入力 */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                アーティスト名
+              </label>
+              <input
+                type="text"
+                value={newSongArtist}
+                onChange={(e) => setNewSongArtist(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
+                placeholder="アーティスト名を入力"
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowSongModal(false);
+                  setSongType(null);
+                  setSelectedAnime(null);
+                  setNewSongTitle('');
+                  setNewSongArtist('');
+                }}
+                className="flex-1 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 py-3 rounded-xl font-bold hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={async () => {
+                  if (newSongTitle.trim() && newSongArtist.trim() && songType && selectedAnime) {
+                    const newSong = {
+                      title: newSongTitle.trim(),
+                      artist: newSongArtist.trim(),
+                      rating: 0,
+                      isFavorite: false,
+                    };
+                    
+                    const updatedSeasons = seasons.map(season => ({
+                      ...season,
+                      animes: season.animes.map((anime) =>
+                        anime.id === selectedAnime.id
+                          ? {
+                              ...anime,
+                              songs: {
+                                ...anime.songs,
+                                [songType]: newSong,
+                              },
+                            }
+                          : anime
+                      ),
+                    }));
+                    
+                    // Supabaseを更新（ログイン時のみ）
+                    if (user) {
+                      try {
+                        const updatedSongs = {
+                          ...selectedAnime.songs,
+                          [songType]: newSong,
+                        };
+                        const { error } = await supabase
+                          .from('animes')
+                          .update({ songs: updatedSongs })
+                          .eq('id', selectedAnime.id)
+                          .eq('user_id', user.id);
+                        
+                        if (error) throw error;
+                      } catch (error) {
+                        console.error('Failed to save anime song to Supabase:', error);
+                      }
+                    }
+                    
+                    setSeasons(updatedSeasons);
+                    setShowSongModal(false);
+                    setSongType(null);
+                    setSelectedAnime(null);
+                    setNewSongTitle('');
+                    setNewSongArtist('');
+                  }
+                }}
+                disabled={!newSongTitle.trim() || !newSongArtist.trim() || !songType || !selectedAnime}
+                className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+              >
+                登録
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -3643,14 +6049,32 @@ export default function Home() {
                     .filter(a => a.rating > 0)
                     .sort((a, b) => b.rating - a.rating)
                     .slice(0, 3)
-                    .map((anime, index) => (
-                      <div
-                        key={anime.id}
-                        className="bg-white/20 backdrop-blur-sm rounded-lg w-16 h-20 flex items-center justify-center text-3xl"
-                      >
-                        {anime.image}
-                      </div>
-                    ))}
+                    .map((anime, index) => {
+                      const isImageUrl = anime.image && (anime.image.startsWith('http://') || anime.image.startsWith('https://'));
+                      return (
+                        <div
+                          key={anime.id}
+                          className="bg-white/20 backdrop-blur-sm rounded-lg w-16 h-20 flex items-center justify-center overflow-hidden relative"
+                        >
+                          {isImageUrl ? (
+                            <img
+                              src={anime.image}
+                              alt={anime.title}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).style.display = 'none';
+                                const parent = (e.target as HTMLImageElement).parentElement;
+                                if (parent) {
+                                  parent.innerHTML = '<span class="text-3xl">🎬</span>';
+                                }
+                              }}
+                            />
+                          ) : (
+                            <span className="text-3xl">{anime.image || '🎬'}</span>
+                          )}
+                        </div>
+                      );
+                    })}
                 </div>
               </div>
               
@@ -3717,7 +6141,7 @@ export default function Home() {
               <span className={`text-2xl transition-transform ${activeTab === 'discover' ? 'scale-110' : 'scale-100'}`}>
                 📊
               </span>
-              <span className="text-xs font-medium mt-1">発見</span>
+              <span className="text-xs font-medium mt-1">統計</span>
             </button>
             
             <button
@@ -3745,7 +6169,7 @@ export default function Home() {
               <span className={`text-2xl transition-transform ${activeTab === 'profile' ? 'scale-110' : 'scale-100'}`}>
                 👤
               </span>
-              <span className="text-xs font-medium mt-1">マイ</span>
+              <span className="text-xs font-medium mt-1">マイページ</span>
             </button>
           </div>
         </div>

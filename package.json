@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.89.0",
+    "html2canvas": "^1.4.1",
     "next": "16.0.8",
     "react": "19.2.1",
     "react-dom": "19.2.1"
