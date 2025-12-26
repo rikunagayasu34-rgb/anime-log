@@ -48,9 +48,6 @@ import { useCountAnimation } from './hooks/useCountAnimation';
 import { useModalHandlers } from './hooks/useModalHandlers';
 import { animeToSupabase, supabaseToAnime, extractSeriesName, getSeasonName } from './utils/helpers';
 
-
-
-
 // メインページ
 export default function Home() {
   const [selectedAnime, setSelectedAnime] = useState<Anime | null>(null);
@@ -387,7 +384,7 @@ export default function Home() {
             }}
             onEditQuote={(animeId, quoteIndex) => {
               const anime = allAnimes.find(a => a.id === animeId);
-              if (anime && anime.quotes && anime.quotes[quoteIndex]) {
+              if (anime?.quotes?.[quoteIndex]) {
                 setEditingQuote({ animeId, quoteIndex });
                 setNewQuoteText(anime.quotes[quoteIndex].text);
                 setNewQuoteCharacter(anime.quotes[quoteIndex].character || '');
