@@ -1652,18 +1652,15 @@ function AnimeCard({ anime, onClick }: { anime: Anime; onClick: () => void }) {
   
   // コンポーネントがマウントされた時、またはimageが変わった時にリセット
   useEffect(() => {
-    const updateImageState = () => {
-      if (isImageUrl) {
-        setImageLoading(true);
-        setImageError(false);
-      } else {
-        setImageLoading(false);
-        setImageError(false);
-      }
-    };
-    updateImageState();
-  }, [isImageUrl]);
-  
+    
+    if (isImageUrl) {
+      setImageLoading(true);
+      setImageError(false);
+    } else {
+      setImageLoading(false);
+      setImageError(false);
+    }
+  }, [anime.image]);
   return (
     <div 
       onClick={onClick}
