@@ -1,11 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn('Supabase環境変数が設定されていません。.env.localファイルを確認してください。');
-}
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
@@ -268,6 +264,25 @@ export async function getMyProfile(): Promise<UserProfile | null> {
     // プロフィールが存在しない場合はnullを返す
     if (error.code === 'PGRST116') return null;
     console.error('Failed to get my profile:', error);
+    return null;
+  }
+  
+  return data;
+}
+
+// usernameで公開プロフィールを取得
+export async function getProfileByUsername(username: string): Promise<UserProfile | null> {
+  const { data, error } = await supabase
+    .from('user_profiles')
+    .select('*')
+    .eq('username', username)
+    .eq('is_public', true)
+    .single();
+  
+  if (error) {
+    // プロフィールが存在しない場合はnullを返す
+    if (error.code === 'PGRST116') return null;
+    console.error('Failed to get profile by username:', error);
     return null;
   }
   
