@@ -1,7 +1,7 @@
 'use client';
 
 import type { User } from '@supabase/supabase-js';
-import type { UserProfile } from '../../types';
+import type { UserProfile } from '../../lib/supabase';
 import { getFollowing, getFollowers } from '../../lib/supabase';
 import { UserCard } from '../UserCard';
 

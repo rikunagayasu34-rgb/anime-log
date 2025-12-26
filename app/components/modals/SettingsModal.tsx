@@ -1,7 +1,8 @@
 'use client';
 
 import type { User } from '@supabase/supabase-js';
-import type { Anime, UserProfile } from '../../types';
+import type { Anime } from '../../types';
+import type { UserProfile } from '../../lib/supabase';
 import { otakuTypes } from '../../constants';
 import { getMyProfile } from '../../lib/supabase';
 
