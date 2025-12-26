@@ -3368,7 +3368,7 @@ export default function Home() {
                       {filteredCharacters.map((character) => (
                         <div
                           key={character.id}
-                          className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md relative group"
+                          className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 hover:shadow-md transition-shadow relative group"
                         >
                           {/* 編集・削除ボタン */}
                           <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -3641,11 +3641,13 @@ export default function Home() {
                                     🗑️
                                   </button>
                                 </div>
-                                
-                                <p className="text-sm dark:text-white mb-2 pr-12">「{quote.text}」</p>
-                                <p className="text-xs text-gray-500 dark:text-gray-400">
-                                  {quote.character ? `${quote.character} / ` : ''}{quote.animeTitle}
-                                </p>
+                                <span className="text-2xl">💬</span>
+                                <div className="flex-1">
+                                  <p className="text-sm dark:text-white mb-1 pr-12">「{quote.text}」</p>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    {quote.character ? `${quote.character} / ` : ''}{quote.animeTitle}
+                                  </p>
+                                </div>
                               </div>
                             ));
                           })()}
@@ -3735,11 +3737,14 @@ export default function Home() {
                         <div
                           key={list.id}
                           onClick={() => setSelectedList(list)}
-                          className="bg-linear-to-br from-[#ffc2d1] to-[#ffb07c] rounded-2xl p-4 shadow-md cursor-pointer hover:scale-105 transition-transform"
+                          className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 hover:shadow-md transition-shadow cursor-pointer flex items-center gap-3"
                         >
-                          <h3 className="font-bold text-white mb-1">{list.title}</h3>
-                          <p className="text-white/80 text-sm mb-2">{list.description}</p>
-                          <p className="text-white/60 text-xs">{list.animeIds.length}作品</p>
+                          <span className="text-2xl">📋</span>
+                          <div className="flex-1">
+                            <h3 className="font-bold text-gray-800 dark:text-white mb-1">{list.title}</h3>
+                            <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">{list.description}</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-500">{list.animeIds.length}作品</p>
+                          </div>
                         </div>
                       ));
                     })()}
@@ -3813,7 +3818,7 @@ export default function Home() {
                         return (
                           <div
                             key={voiceActor.id}
-                            className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md hover:shadow-lg transition-shadow relative group"
+                            className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 hover:shadow-md transition-shadow relative group"
                           >
                             {/* 編集・削除ボタン（ホバー時表示） */}
                             <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
