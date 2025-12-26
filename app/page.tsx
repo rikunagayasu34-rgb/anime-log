@@ -62,6 +62,9 @@ import { AddVoiceActorModal } from './components/modals/AddVoiceActorModal';
 import { AddQuoteModal } from './components/modals/AddQuoteModal';
 import { DNAModal } from './components/modals/DNAModal';
 import { AddAnimeFormModal } from './components/modals/AddAnimeFormModal';
+import { AnimeDetailModal } from './components/modals/AnimeDetailModal';
+import { Navigation } from './components/Navigation';
+import { useAnimeReviews } from './hooks/useAnimeReviews';
 import { translateGenre } from './utils/helpers';
 
 
@@ -165,14 +168,22 @@ export default function Home() {
   const [songType, setSongType] = useState<'op' | 'ed' | null>(null);
   const [newSongTitle, setNewSongTitle] = useState('');
   const [newSongArtist, setNewSongArtist] = useState('');
-  const [animeDetailTab, setAnimeDetailTab] = useState<'info' | 'reviews'>('info');
-  const [animeReviews, setAnimeReviews] = useState<Review[]>([]);
-  const [loadingReviews, setLoadingReviews] = useState(false);
   const [showReviewModal, setShowReviewModal] = useState(false);
-  const [reviewFilter, setReviewFilter] = useState<'all' | 'overall' | 'episode'>('all');
-  const [reviewSort, setReviewSort] = useState<'newest' | 'likes' | 'helpful'>('newest');
-  const [userSpoilerHidden, setUserSpoilerHidden] = useState(false);
-  const [expandedSpoilerReviews, setExpandedSpoilerReviews] = useState<Set<string>>(new Set());
+  
+  // レビュー関連の状態をカスタムフックで管理
+  const {
+    animeReviews,
+    loadingReviews,
+    reviewFilter,
+    setReviewFilter,
+    reviewSort,
+    setReviewSort,
+    userSpoilerHidden,
+    setUserSpoilerHidden,
+    expandedSpoilerReviews,
+    setExpandedSpoilerReviews,
+    loadReviews,
+  } = useAnimeReviews(user);
 
   // 認証状態の監視
   useEffect(() => {
@@ -481,101 +492,16 @@ export default function Home() {
     };
   };
 
-  // 感想をSupabaseから読み込む
-  const loadReviews = async (animeId: number) => {
-    if (!user) {
-      setAnimeReviews([]);
-      return;
-    }
-    
-    setLoadingReviews(true);
-    try {
-      // アニメのUUIDを取得（animesテーブルから）
-      const { data: animeData, error: animeError } = await supabase
-        .from('animes')
-        .select('id')
-        .eq('id', animeId)
-        .eq('user_id', user.id)
-        .single();
-      
-      if (animeError || !animeData) {
-        console.error('Failed to find anime:', animeError);
-        setAnimeReviews([]);
-        setLoadingReviews(false);
-        return;
-      }
-      
-      const animeUuid = animeData.id;
-      
-      // 感想を取得
-      const { data: reviewsData, error: reviewsError } = await supabase
-        .from('reviews')
-        .select('*')
-        .eq('anime_id', animeUuid)
-        .order('created_at', { ascending: false });
-      
-      if (reviewsError) throw reviewsError;
-      
-      // 現在のユーザーがいいね/役に立ったを押したか確認
-      if (reviewsData && reviewsData.length > 0) {
-        const reviewIds = reviewsData.map(r => r.id);
-        
-        // いいね情報を取得
-        const { data: likesData } = await supabase
-          .from('review_likes')
-          .select('review_id')
-          .in('review_id', reviewIds)
-          .eq('user_id', user.id);
-        
-        // 役に立った情報を取得
-        const { data: helpfulData } = await supabase
-          .from('review_helpful')
-          .select('review_id')
-          .in('review_id', reviewIds)
-          .eq('user_id', user.id);
-        
-        const likedReviewIds = new Set(likesData?.map(l => l.review_id) || []);
-        const helpfulReviewIds = new Set(helpfulData?.map(h => h.review_id) || []);
-        
-        const reviews: Review[] = reviewsData.map((r: any) => ({
-          id: r.id,
-          animeId: animeId, // 数値IDを保持
-          userId: r.user_id,
-          userName: r.user_name,
-          userIcon: r.user_icon,
-          type: r.type as 'overall' | 'episode',
-          episodeNumber: r.episode_number || undefined,
-          content: r.content,
-          containsSpoiler: r.contains_spoiler,
-          spoilerHidden: r.spoiler_hidden,
-          likes: r.likes || 0,
-          helpfulCount: r.helpful_count || 0,
-          createdAt: new Date(r.created_at),
-          updatedAt: new Date(r.updated_at),
-          userLiked: likedReviewIds.has(r.id),
-          userHelpful: helpfulReviewIds.has(r.id),
-        }));
-        
-        setAnimeReviews(reviews);
-      } else {
-        setAnimeReviews([]);
-      }
-    } catch (error) {
-      console.error('Failed to load reviews:', error);
-      setAnimeReviews([]);
-    } finally {
-      setLoadingReviews(false);
-    }
-  };
 
   // アニメが選択されたときに感想を読み込む
   useEffect(() => {
     if (selectedAnime && user) {
       loadReviews(selectedAnime.id);
-    } else {
-      setAnimeReviews([]);
+    } else if (!selectedAnime || !user) {
+      // アニメが選択されていない、またはログインしていない場合は空にする
+      // loadReviewsは既に空にする処理を含んでいるので、ここでは何もしない
     }
-  }, [selectedAnime?.id, user]);
+  }, [selectedAnime?.id, user, loadReviews]);
 
   // ログイン時にSupabaseからアニメデータを読み込む、未ログイン時はlocalStorageから読み込む
   useEffect(() => {
@@ -720,39 +646,17 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-[#fef6f0] dark:bg-gray-900">
-      {/* ヘッダー */}
-      <header className="bg-white dark:bg-gray-800 border-b dark:border-gray-700 sticky top-0 z-10 lg:ml-[200px]">
-        <div className="max-w-md md:max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-          <h1 className="text-xl font-black bg-linear-to-r from-[#ffc2d1] to-[#ffb07c] bg-clip-text text-transparent">
-            俺のアニメログ
-          </h1>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setIsDarkMode(!isDarkMode)}
-              className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-              title={isDarkMode ? 'ライトモードに切り替え' : 'ダークモードに切り替え'}
-            >
-              {isDarkMode ? '☀️' : '🌙'}
-            </button>
-            {user ? (
-              <button
-                onClick={() => setShowSettings(true)}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-              >
-                <span className="text-2xl">{userIcon}</span>
-                <span className="font-bold text-sm dark:text-white">{userName}</span>
-              </button>
-            ) : (
-              <button
-                onClick={() => setShowAuthModal(true)}
-                className="px-3 py-1.5 rounded-full bg-[#ffc2d1] hover:bg-[#ffb07c] text-white font-bold text-sm transition-colors"
-              >
-                ログイン
-              </button>
-            )}
-          </div>
-        </div>
-      </header>
+      <Navigation
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        isDarkMode={isDarkMode}
+        setIsDarkMode={setIsDarkMode}
+        user={user}
+        userName={userName}
+        userIcon={userIcon}
+        setShowSettings={setShowSettings}
+        setShowAuthModal={setShowAuthModal}
+      />
 
       {/* メインコンテンツ */}
       <main className="max-w-md md:max-w-6xl mx-auto px-4 py-6 pb-24 lg:pb-6 lg:ml-[200px]">
@@ -1009,1401 +913,193 @@ export default function Home() {
 
       {/* アニメ詳細モーダル */}
       {selectedAnime && (
+        <AnimeDetailModal
+          selectedAnime={selectedAnime}
+          setSelectedAnime={setSelectedAnime}
+          seasons={seasons}
+          setSeasons={setSeasons}
+          user={user}
+          supabase={supabase}
+          animeReviews={animeReviews}
+          loadingReviews={loadingReviews}
+          loadReviews={loadReviews}
+          reviewFilter={reviewFilter}
+          setReviewFilter={setReviewFilter}
+          reviewSort={reviewSort}
+          setReviewSort={setReviewSort}
+          userSpoilerHidden={userSpoilerHidden}
+          setUserSpoilerHidden={setUserSpoilerHidden}
+          expandedSpoilerReviews={expandedSpoilerReviews}
+          setExpandedSpoilerReviews={setExpandedSpoilerReviews}
+          setShowReviewModal={setShowReviewModal}
+          setShowSongModal={setShowSongModal}
+          setSongType={setSongType}
+          setNewSongTitle={setNewSongTitle}
+          setNewSongArtist={setNewSongArtist}
+        />
+      )}
+
+      <CreateListModal
+        show={showCreateListModal}
+        onClose={() => {
+          setShowCreateListModal(false);
+          setEditingList(null);
+        }}
+        allAnimes={allAnimes}
+        editingList={editingList}
+        onSave={(list) => {
+          if (editingList) {
+            // 編集
+            const updatedLists = evangelistLists.map(l =>
+              l.id === editingList.id
+                ? {
+                    ...l,
+                    title: list.title,
+                    description: list.description,
+                    animeIds: list.animeIds,
+                  }
+                : l
+            );
+            setEvangelistLists(updatedLists);
+          } else {
+            // 新規作成
+            const newList: EvangelistList = {
+              id: Date.now(),
+              title: list.title,
+              description: list.description,
+              animeIds: list.animeIds,
+              createdAt: new Date(),
+            };
+            setEvangelistLists([...evangelistLists, newList]);
+          }
+          setEditingList(null);
+        }}
+      />
+
+      {/* 布教リスト詳細モーダル */}
+      {selectedList && (
         <div 
           className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-          onClick={() => setSelectedAnime(null)}
+          onClick={() => setSelectedList(null)}
         >
           <div 
-            className="bg-white dark:bg-gray-800 rounded-2xl max-w-sm lg:max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6"
+            className="bg-white dark:bg-gray-800 rounded-2xl max-w-sm w-full p-6 max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* タブ切り替え */}
-            <div className="flex gap-2 mb-4 border-b dark:border-gray-700 pb-2">
-              <button
-                onClick={() => setAnimeDetailTab('info')}
-                className={`flex-1 px-4 py-2 rounded-xl font-medium transition-all ${
-                  animeDetailTab === 'info'
-                    ? 'bg-[#ffc2d1] text-white'
-                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                }`}
-              >
-                基本情報
-              </button>
-              <button
-                onClick={() => setAnimeDetailTab('reviews')}
-                className={`flex-1 px-4 py-2 rounded-xl font-medium transition-all ${
-                  animeDetailTab === 'reviews'
-                    ? 'bg-[#ffc2d1] text-white'
-                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                }`}
-              >
-                感想
-              </button>
-            </div>
-
-            {/* 基本情報タブ */}
-            {animeDetailTab === 'info' && (
-              <>
-            <div className="text-center mb-4">
-              {(() => {
-                const isImageUrl = selectedAnime.image && (selectedAnime.image.startsWith('http://') || selectedAnime.image.startsWith('https://'));
-                return isImageUrl ? (
-                  <div className="flex justify-center mb-3">
-                    <img
-                      src={selectedAnime.image}
-                      alt={selectedAnime.title}
-                      className="w-32 h-44 object-cover rounded-xl shadow-lg"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = 'none';
-                        const parent = (e.target as HTMLImageElement).parentElement;
-                        if (parent) {
-                          parent.innerHTML = '<span class="text-6xl">🎬</span>';
-                        }
-                      }}
-                    />
-                  </div>
-                ) : (
-                  <span className="text-6xl block mb-3">{selectedAnime.image || '🎬'}</span>
-                );
-              })()}
-              <h3 className="text-xl font-bold mt-2 dark:text-white">{selectedAnime.title}</h3>
-            </div>
+            <h2 className="text-xl font-bold mb-2 dark:text-white">{selectedList.title}</h2>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{selectedList.description}</p>
             
-            {/* 評価ボタン */}
+            {/* アニメ一覧 */}
             <div className="mb-4">
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2 text-center font-medium">評価を選択</p>
-              <div className="flex justify-center gap-2 mb-2">
-                {[1, 2, 3, 4, 5].map((rating) => (
-                  <button
-                    key={rating}
-                    onClick={async () => {
-                      const updatedSeasons = seasons.map(season => ({
-                        ...season,
-                        animes: season.animes.map((anime) =>
-                          anime.id === selectedAnime.id
-                            ? { ...anime, rating }
-                            : anime
-                        ),
-                      }));
-                      
-                      // Supabaseを更新（ログイン時のみ）
-                      if (user) {
-                        try {
-                          const { error } = await supabase
-                            .from('animes')
-                            .update({ rating })
-                            .eq('id', selectedAnime.id)
-                            .eq('user_id', user.id);
-                          
-                          if (error) throw error;
-                        } catch (error) {
-                          console.error('Failed to update anime rating in Supabase:', error);
-                        }
-                      }
-                      
-                      setSeasons(updatedSeasons);
-                      setSelectedAnime({ ...selectedAnime, rating });
-                    }}
-                    className={`text-3xl transition-all hover:scale-110 active:scale-95 ${
-                      selectedAnime.rating >= rating
-                        ? 'text-[#ffd966] drop-shadow-sm'
-                        : 'text-gray-300 opacity-30 hover:opacity-50'
-                    }`}
-                    title={`${rating}つ星`}
-                  >
-                    {selectedAnime.rating >= rating ? '★' : '☆'}
-                  </button>
-                ))}
-              </div>
-              {selectedAnime.rating > 0 ? (
-                <p className="text-center text-sm text-gray-600 dark:text-gray-400 mt-2 font-medium">
-                  {ratingLabels[selectedAnime.rating]?.emoji} {ratingLabels[selectedAnime.rating]?.label}
-                </p>
-              ) : (
-                <p className="text-center text-sm text-gray-400 dark:text-gray-500 mt-2">
-                  評価を選択してください
-                </p>
-              )}
-            </div>
-
-            {/* 周回数編集 */}
-            <div className="mb-4">
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2 text-center font-medium">周回数</p>
-              <div className="flex items-center justify-center gap-3">
-                <button
-                  onClick={async () => {
-                    const currentCount = selectedAnime.rewatchCount ?? 0;
-                    const newCount = Math.max(0, currentCount - 1);
-                    const updatedSeasons = seasons.map(season => ({
-                      ...season,
-                      animes: season.animes.map((anime) =>
-                        anime.id === selectedAnime.id
-                          ? { ...anime, rewatchCount: newCount }
-                          : anime
-                      ),
-                    }));
-                    
-                    // Supabaseを更新（ログイン時のみ）
-                    if (user) {
-                      try {
-                        const { error } = await supabase
-                          .from('animes')
-                          .update({ rewatch_count: newCount })
-                          .eq('id', selectedAnime.id)
-                          .eq('user_id', user.id);
-                        
-                        if (error) throw error;
-                      } catch (error) {
-                        console.error('Failed to update anime rewatch count in Supabase:', error);
-                      }
-                    }
-                    
-                    setSeasons(updatedSeasons);
-                    setSelectedAnime({ ...selectedAnime, rewatchCount: newCount });
-                  }}
-                  className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-bold text-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors flex items-center justify-center"
-                  disabled={(selectedAnime.rewatchCount ?? 0) <= 0}
-                >
-                  -
-                </button>
-                <span className="text-2xl font-bold dark:text-white min-w-[60px] text-center">
-                  {(selectedAnime.rewatchCount ?? 0)}周
-                </span>
-                <button
-                  onClick={async () => {
-                    const currentCount = selectedAnime.rewatchCount ?? 0;
-                    const newCount = Math.min(99, currentCount + 1);
-                    const updatedSeasons = seasons.map(season => ({
-                      ...season,
-                      animes: season.animes.map((anime) =>
-                        anime.id === selectedAnime.id
-                          ? { ...anime, rewatchCount: newCount }
-                          : anime
-                      ),
-                    }));
-                    
-                    // Supabaseを更新（ログイン時のみ）
-                    if (user) {
-                      try {
-                        const { error } = await supabase
-                          .from('animes')
-                          .update({ rewatch_count: newCount })
-                          .eq('id', selectedAnime.id)
-                          .eq('user_id', user.id);
-                        
-                        if (error) throw error;
-                      } catch (error) {
-                        console.error('Failed to update anime rewatch count in Supabase:', error);
-                      }
-                    }
-                    
-                    setSeasons(updatedSeasons);
-                    setSelectedAnime({ ...selectedAnime, rewatchCount: newCount });
-                  }}
-                  className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-bold text-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors flex items-center justify-center"
-                  disabled={(selectedAnime.rewatchCount ?? 0) >= 99}
-                >
-                  +
-                </button>
-              </div>
-            </div>
-
-            {/* タグ選択 */}
-            <div className="mb-4">
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2 text-center font-medium">タグ</p>
-              <div className="flex flex-wrap gap-2 justify-center">
-                {availableTags.map((tag) => {
-                  const isSelected = selectedAnime.tags?.includes(tag.value) ?? false;
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                {selectedList.animeIds.length}作品
+              </h3>
+              <div className="grid grid-cols-3 gap-3">
+                {selectedList.animeIds.map((animeId) => {
+                  const anime = allAnimes.find(a => a.id === animeId);
+                  if (!anime) return null;
+                  const isImageUrl = anime.image && (anime.image.startsWith('http://') || anime.image.startsWith('https://'));
                   return (
-                    <button
-                      key={tag.value}
-                      onClick={async () => {
-                        const currentTags = selectedAnime.tags ?? [];
-                        const newTags = isSelected
-                          ? currentTags.filter(t => t !== tag.value)
-                          : [...currentTags, tag.value];
-                        const updatedSeasons = seasons.map(season => ({
-                          ...season,
-                          animes: season.animes.map((anime) =>
-                            anime.id === selectedAnime.id
-                              ? { ...anime, tags: newTags }
-                              : anime
-                          ),
-                        }));
-                        
-                        // Supabaseを更新（ログイン時のみ）
-                        if (user) {
-                          try {
-                            const { error } = await supabase
-                              .from('animes')
-                              .update({ tags: newTags })
-                              .eq('id', selectedAnime.id)
-                              .eq('user_id', user.id);
-                            
-                            if (error) throw error;
-                          } catch (error) {
-                            console.error('Failed to update anime tags in Supabase:', error);
-                          }
-                        }
-                        
-                        setSeasons(updatedSeasons);
-                        setSelectedAnime({ ...selectedAnime, tags: newTags });
+                    <div
+                      key={animeId}
+                      onClick={() => {
+                        setSelectedAnime(anime);
+                        setSelectedList(null);
                       }}
-                      className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                        isSelected
-                          ? 'bg-[#ffc2d1] text-white dark:bg-indigo-500'
-                          : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
-                      }`}
+                      className="bg-linear-to-br from-[#ffc2d1] to-[#ffb07c] rounded-xl p-3 text-white text-center cursor-pointer hover:scale-105 transition-transform"
                     >
-                      {tag.emoji} {tag.label}
-                    </button>
+                      {isImageUrl ? (
+                        <img
+                          src={anime.image}
+                          alt={anime.title}
+                          className="w-full h-16 object-cover rounded mb-1"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = 'none';
+                            const parent = (e.target as HTMLImageElement).parentElement;
+                            if (parent) {
+                              parent.innerHTML = '<div class="text-3xl mb-1">🎬</div><p class="text-xs font-bold truncate">' + anime.title + '</p>';
+                            }
+                          }}
+                        />
+                      ) : (
+                        <div className="text-3xl mb-1">{anime.image}</div>
+                      )}
+                      <p className="text-xs font-bold truncate">{anime.title}</p>
+                    </div>
                   );
                 })}
               </div>
             </div>
 
-            {/* シリーズ名編集 */}
-            <div className="mb-4">
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2 text-center font-medium">シリーズ名</p>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={selectedAnime.seriesName || ''}
-                  onChange={(e) => {
-                    const newSeriesName = e.target.value.trim() || undefined;
-                    setSelectedAnime({ ...selectedAnime, seriesName: newSeriesName });
-                  }}
-                  onBlur={async () => {
-                    const newSeriesName = selectedAnime.seriesName?.trim() || undefined;
-                    const updatedSeasons = seasons.map(season => ({
-                      ...season,
-                      animes: season.animes.map((anime) =>
-                        anime.id === selectedAnime.id
-                          ? { ...anime, seriesName: newSeriesName }
-                          : anime
-                      ),
-                    }));
-                    
-                    // Supabaseを更新（ログイン時のみ）
-                    if (user) {
-                      try {
-                        const { error } = await supabase
-                          .from('animes')
-                          .update({ series_name: newSeriesName })
-                          .eq('id', selectedAnime.id)
-                          .eq('user_id', user.id);
-                        
-                        if (error) throw error;
-                      } catch (error) {
-                        console.error('Failed to update anime series name in Supabase:', error);
-                      }
-                    }
-                    
-                    setSeasons(updatedSeasons);
-                  }}
-                  placeholder="シリーズ名を入力（任意）"
-                  className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ffc2d1] dark:bg-gray-700 dark:text-white text-sm"
-                />
-                {selectedAnime.seriesName && (
-                  <button
-                    onClick={async () => {
-                      const updatedSeasons = seasons.map(season => ({
-                        ...season,
-                        animes: season.animes.map((anime) =>
-                          anime.id === selectedAnime.id
-                            ? { ...anime, seriesName: undefined }
-                            : anime
-                        ),
-                      }));
-                      
-                      // Supabaseを更新（ログイン時のみ）
-                      if (user) {
-                        try {
-                          const { error } = await supabase
-                            .from('animes')
-                            .update({ series_name: null })
-                            .eq('id', selectedAnime.id)
-                            .eq('user_id', user.id);
-                          
-                          if (error) throw error;
-                        } catch (error) {
-                          console.error('Failed to remove anime series name in Supabase:', error);
-                        }
-                      }
-                      
-                      setSeasons(updatedSeasons);
-                      setSelectedAnime({ ...selectedAnime, seriesName: undefined });
-                    }}
-                    className="px-3 py-2 bg-red-500 text-white rounded-xl text-sm font-medium hover:bg-red-600 transition-colors"
-                  >
-                    削除
-                  </button>
-                )}
-              </div>
-              <p className="text-xs text-gray-400 dark:text-gray-500 text-center mt-1">
-                同じシリーズ名を持つアニメがグループ化されます
-              </p>
-            </div>
-
-            {/* 主題歌 */}
-            <div className="mb-4">
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-3 text-center font-medium">主題歌</p>
-              
-              {/* OP */}
-              <div className="mb-3">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">OP</p>
-                  {!selectedAnime.songs?.op && (
-                    <button
-                      onClick={() => {
-                        setSongType('op');
-                        setNewSongTitle('');
-                        setNewSongArtist('');
-                        setShowSongModal(true);
-                      }}
-                      className="text-xs bg-[#ffc2d1] text-white px-3 py-1 rounded-lg hover:bg-[#ffb07c] transition-colors"
-                    >
-                      + 登録
-                    </button>
-                  )}
-                </div>
-                {selectedAnime.songs?.op ? (
-                  <div className="bg-linear-to-r from-orange-100 to-red-100 dark:from-orange-900/30 dark:to-red-900/30 rounded-lg p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex-1">
-                        <p className="font-bold text-sm dark:text-white">{selectedAnime.songs.op.title}</p>
-                        <p className="text-xs text-gray-600 dark:text-gray-400">{selectedAnime.songs.op.artist}</p>
-                      </div>
-                      <button
-                        onClick={async () => {
-                          const updatedSeasons = seasons.map(season => ({
-                            ...season,
-                            animes: season.animes.map((anime) =>
-                              anime.id === selectedAnime.id
-                                ? {
-                                    ...anime,
-                                    songs: {
-                                      ...anime.songs,
-                                      op: anime.songs?.op
-                                        ? { ...anime.songs.op, isFavorite: !anime.songs.op.isFavorite }
-                                        : undefined,
-                                    },
-                                  }
-                                : anime
-                            ),
-                          }));
-                          
-                          // Supabaseを更新（ログイン時のみ）
-                          if (user && selectedAnime.songs?.op) {
-                            try {
-                              const updatedSongs = {
-                                ...selectedAnime.songs,
-                                op: { ...selectedAnime.songs.op, isFavorite: !selectedAnime.songs.op.isFavorite },
-                              };
-                              const { error } = await supabase
-                                .from('animes')
-                                .update({ songs: updatedSongs })
-                                .eq('id', selectedAnime.id)
-                                .eq('user_id', user.id);
-                              
-                              if (error) throw error;
-                            } catch (error) {
-                              console.error('Failed to update anime songs in Supabase:', error);
-                            }
-                          }
-                          
-                          setSeasons(updatedSeasons);
-                          setSelectedAnime({
-                            ...selectedAnime,
-                            songs: {
-                              ...selectedAnime.songs,
-                              op: selectedAnime.songs?.op
-                                ? { ...selectedAnime.songs.op, isFavorite: !selectedAnime.songs.op.isFavorite }
-                                : undefined,
-                            },
-                          });
-                        }}
-                        className="text-xl"
-                      >
-                        {selectedAnime.songs.op.isFavorite ? '❤️' : '🤍'}
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {[1, 2, 3, 4, 5].map((rating) => (
-                        <button
-                          key={rating}
-                          onClick={async () => {
-                            const updatedSeasons = seasons.map(season => ({
-                              ...season,
-                              animes: season.animes.map((anime) =>
-                                anime.id === selectedAnime.id
-                                  ? {
-                                      ...anime,
-                                      songs: {
-                                        ...anime.songs,
-                                        op: anime.songs?.op
-                                          ? { ...anime.songs.op, rating }
-                                          : undefined,
-                                      },
-                                    }
-                                  : anime
-                              ),
-                            }));
-                            
-                            // Supabaseを更新（ログイン時のみ）
-                            if (user && selectedAnime.songs?.op) {
-                              try {
-                                const updatedSongs = {
-                                  ...selectedAnime.songs,
-                                  op: { ...selectedAnime.songs.op, rating },
-                                };
-                                const { error } = await supabase
-                                  .from('animes')
-                                  .update({ songs: updatedSongs })
-                                  .eq('id', selectedAnime.id)
-                                  .eq('user_id', user.id);
-                                
-                                if (error) throw error;
-                              } catch (error) {
-                                console.error('Failed to update anime songs in Supabase:', error);
-                              }
-                            }
-                            
-                            setSeasons(updatedSeasons);
-                            setSelectedAnime({
-                              ...selectedAnime,
-                              songs: {
-                                ...selectedAnime.songs,
-                                op: selectedAnime.songs?.op
-                                  ? { ...selectedAnime.songs.op, rating }
-                                  : undefined,
-                              },
-                            });
-                          }}
-                          className={`text-sm ${
-                            (selectedAnime.songs?.op?.rating ?? 0) >= rating
-                              ? 'text-yellow-400'
-                              : 'text-gray-300'
-                          }`}
-                        >
-                          ⭐
-                        </button>
-                      ))}
-                    </div>
-                    <button
-                      onClick={async () => {
-                        const updatedSeasons = seasons.map(season => ({
-                          ...season,
-                          animes: season.animes.map((anime) =>
-                            anime.id === selectedAnime.id
-                              ? {
-                                  ...anime,
-                                  songs: {
-                                    ...anime.songs,
-                                    op: undefined,
-                                  },
-                                }
-                              : anime
-                          ),
-                        }));
-                        
-                        // Supabaseを更新（ログイン時のみ）
-                        if (user) {
-                          try {
-                            const updatedSongs = {
-                              ...selectedAnime.songs,
-                              op: undefined,
-                            };
-                            const { error } = await supabase
-                              .from('animes')
-                              .update({ songs: updatedSongs })
-                              .eq('id', selectedAnime.id)
-                              .eq('user_id', user.id);
-                            
-                            if (error) throw error;
-                          } catch (error) {
-                            console.error('Failed to delete anime song in Supabase:', error);
-                          }
-                        }
-                        
-                        setSeasons(updatedSeasons);
-                        setSelectedAnime({
-                          ...selectedAnime,
-                          songs: {
-                            ...selectedAnime.songs,
-                            op: undefined,
-                          },
-                        });
-                      }}
-                      className="mt-2 text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-500"
-                    >
-                      削除
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-
-              {/* ED */}
-              <div className="mb-3">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">ED</p>
-                  {!selectedAnime.songs?.ed && (
-                    <button
-                      onClick={() => {
-                        setSongType('ed');
-                        setNewSongTitle('');
-                        setNewSongArtist('');
-                        setShowSongModal(true);
-                      }}
-                      className="text-xs bg-[#ffc2d1] text-white px-3 py-1 rounded-lg hover:bg-[#ffb07c] transition-colors"
-                    >
-                      + 登録
-                    </button>
-                  )}
-                </div>
-                {selectedAnime.songs?.ed ? (
-                  <div className="bg-linear-to-r from-blue-100 to-purple-100 dark:from-blue-900/30 dark:to-purple-900/30 rounded-lg p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex-1">
-                        <p className="font-bold text-sm dark:text-white">{selectedAnime.songs.ed.title}</p>
-                        <p className="text-xs text-gray-600 dark:text-gray-400">{selectedAnime.songs.ed.artist}</p>
-                      </div>
-                      <button
-                        onClick={async () => {
-                          const updatedSeasons = seasons.map(season => ({
-                            ...season,
-                            animes: season.animes.map((anime) =>
-                              anime.id === selectedAnime.id
-                                ? {
-                                    ...anime,
-                                    songs: {
-                                      ...anime.songs,
-                                      ed: anime.songs?.ed
-                                        ? { ...anime.songs.ed, isFavorite: !anime.songs.ed.isFavorite }
-                                        : undefined,
-                                    },
-                                  }
-                                : anime
-                            ),
-                          }));
-                          
-                          // Supabaseを更新（ログイン時のみ）
-                          if (user && selectedAnime.songs?.ed) {
-                            try {
-                              const updatedSongs = {
-                                ...selectedAnime.songs,
-                                ed: { ...selectedAnime.songs.ed, isFavorite: !selectedAnime.songs.ed.isFavorite },
-                              };
-                              const { error } = await supabase
-                                .from('animes')
-                                .update({ songs: updatedSongs })
-                                .eq('id', selectedAnime.id)
-                                .eq('user_id', user.id);
-                              
-                              if (error) throw error;
-                            } catch (error) {
-                              console.error('Failed to update anime songs in Supabase:', error);
-                            }
-                          }
-                          
-                          setSeasons(updatedSeasons);
-                          setSelectedAnime({
-                            ...selectedAnime,
-                            songs: {
-                              ...selectedAnime.songs,
-                              ed: selectedAnime.songs?.ed
-                                ? { ...selectedAnime.songs.ed, isFavorite: !selectedAnime.songs.ed.isFavorite }
-                                : undefined,
-                            },
-                          });
-                        }}
-                        className="text-xl"
-                      >
-                        {selectedAnime.songs.ed.isFavorite ? '❤️' : '🤍'}
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {[1, 2, 3, 4, 5].map((rating) => (
-                        <button
-                          key={rating}
-                          onClick={async () => {
-                            const updatedSeasons = seasons.map(season => ({
-                              ...season,
-                              animes: season.animes.map((anime) =>
-                                anime.id === selectedAnime.id
-                                  ? {
-                                      ...anime,
-                                      songs: {
-                                        ...anime.songs,
-                                        ed: anime.songs?.ed
-                                          ? { ...anime.songs.ed, rating }
-                                          : undefined,
-                                      },
-                                    }
-                                  : anime
-                              ),
-                            }));
-                            
-                            // Supabaseを更新（ログイン時のみ）
-                            if (user && selectedAnime.songs?.ed) {
-                              try {
-                                const updatedSongs = {
-                                  ...selectedAnime.songs,
-                                  ed: { ...selectedAnime.songs.ed, rating },
-                                };
-                                const { error } = await supabase
-                                  .from('animes')
-                                  .update({ songs: updatedSongs })
-                                  .eq('id', selectedAnime.id)
-                                  .eq('user_id', user.id);
-                                
-                                if (error) throw error;
-                              } catch (error) {
-                                console.error('Failed to update anime songs in Supabase:', error);
-                              }
-                            }
-                            
-                            setSeasons(updatedSeasons);
-                            setSelectedAnime({
-                              ...selectedAnime,
-                              songs: {
-                                ...selectedAnime.songs,
-                                ed: selectedAnime.songs?.ed
-                                  ? { ...selectedAnime.songs.ed, rating }
-                                  : undefined,
-                              },
-                            });
-                          }}
-                          className={`text-sm ${
-                            (selectedAnime.songs?.ed?.rating ?? 0) >= rating
-                              ? 'text-yellow-400'
-                              : 'text-gray-300'
-                          }`}
-                        >
-                          ⭐
-                        </button>
-                      ))}
-                    </div>
-                    <button
-                      onClick={async () => {
-                        const updatedSeasons = seasons.map(season => ({
-                          ...season,
-                          animes: season.animes.map((anime) =>
-                            anime.id === selectedAnime.id
-                              ? {
-                                  ...anime,
-                                  songs: {
-                                    ...anime.songs,
-                                    ed: undefined,
-                                  },
-                                }
-                              : anime
-                          ),
-                        }));
-                        
-                        // Supabaseを更新（ログイン時のみ）
-                        if (user) {
-                          try {
-                            const updatedSongs = {
-                              ...selectedAnime.songs,
-                              ed: undefined,
-                            };
-                            const { error } = await supabase
-                              .from('animes')
-                              .update({ songs: updatedSongs })
-                              .eq('id', selectedAnime.id)
-                              .eq('user_id', user.id);
-                            
-                            if (error) throw error;
-                          } catch (error) {
-                            console.error('Failed to delete anime song in Supabase:', error);
-                          }
-                        }
-                        
-                        setSeasons(updatedSeasons);
-                        setSelectedAnime({
-                          ...selectedAnime,
-                          songs: {
-                            ...selectedAnime.songs,
-                            ed: undefined,
-                          },
-                        });
-                      }}
-                      className="mt-2 text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-500"
-                    >
-                      削除
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-
-            {/* 名言 */}
-            <div className="mb-4">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-sm text-gray-600 dark:text-gray-400 font-medium">名言</p>
-                <button
-                  onClick={async () => {
-                    const newQuoteText = prompt('セリフを入力してください:');
-                    if (newQuoteText) {
-                      const newQuoteCharacter = prompt('キャラクター名（任意）:') || undefined;
-                      const newQuotes = [...(selectedAnime.quotes || []), { text: newQuoteText, character: newQuoteCharacter }];
-                      const updatedSeasons = seasons.map(season => ({
-                        ...season,
-                        animes: season.animes.map((anime) =>
-                          anime.id === selectedAnime.id
-                            ? {
-                                ...anime,
-                                quotes: newQuotes,
-                              }
-                            : anime
-                        ),
-                      }));
-                      
-                      // Supabaseを更新（ログイン時のみ）
-                      if (user) {
-                        try {
-                          const { error } = await supabase
-                            .from('animes')
-                            .update({ quotes: newQuotes })
-                            .eq('id', selectedAnime.id)
-                            .eq('user_id', user.id);
-                          
-                          if (error) throw error;
-                        } catch (error) {
-                          console.error('Failed to update anime quotes in Supabase:', error);
-                        }
-                      }
-                      
-                      setSeasons(updatedSeasons);
-                      setSelectedAnime({
-                        ...selectedAnime,
-                        quotes: newQuotes,
-                      });
-                    }
-                  }}
-                  className="text-xs bg-[#ffc2d1] text-white px-3 py-1 rounded-lg hover:bg-[#ffb07c] transition-colors"
-                >
-                  + 名言を追加
-                </button>
-              </div>
-              
-              {selectedAnime.quotes && selectedAnime.quotes.length > 0 ? (
-                <div className="space-y-2">
-                  {selectedAnime.quotes.map((quote, index) => (
-                    <div
-                      key={index}
-                      className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3 border-l-4 border-[#ffc2d1]-500 relative"
-                    >
-                      <p className="text-sm dark:text-white mb-1">「{quote.text}」</p>
-                      {quote.character && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400">— {quote.character}</p>
-                      )}
-                      <button
-                        onClick={async () => {
-                          const updatedQuotes = selectedAnime.quotes?.filter((_, i) => i !== index) || [];
-                          const updatedSeasons = seasons.map(season => ({
-                            ...season,
-                            animes: season.animes.map((anime) =>
-                              anime.id === selectedAnime.id
-                                ? { ...anime, quotes: updatedQuotes }
-                                : anime
-                            ),
-                          }));
-                          
-                          // Supabaseを更新（ログイン時のみ）
-                          if (user) {
-                            try {
-                              const { error } = await supabase
-                                .from('animes')
-                                .update({ quotes: updatedQuotes })
-                                .eq('id', selectedAnime.id)
-                                .eq('user_id', user.id);
-                              
-                              if (error) throw error;
-                            } catch (error) {
-                              console.error('Failed to update anime quotes in Supabase:', error);
-                            }
-                          }
-                          
-                          setSeasons(updatedSeasons);
-                          setSelectedAnime({ ...selectedAnime, quotes: updatedQuotes });
-                        }}
-                        className="absolute top-2 right-2 text-gray-400 hover:text-red-500 text-xs"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-4">名言が登録されていません</p>
-              )}
-            </div>
-
             <div className="flex gap-3">
-              <button 
-                onClick={async () => {
-                  // Supabaseから削除（ログイン時のみ）
-                  if (user) {
-                    try {
-                      // ローカルで生成されたID（非常に大きい数値）の場合は、Supabaseに保存されていない可能性がある
-                      // SupabaseのIDは通常、連番の小さい数値なので、大きすぎるIDの場合はスキップ
-                      const isLocalId = selectedAnime.id > 1000000;
-                      
-                      if (!isLocalId) {
-                        const { data, error } = await supabase
-                          .from('animes')
-                          .delete()
-                          .eq('id', selectedAnime.id)
-                          .eq('user_id', user.id)
-                          .select();
-                        
-                        if (error) {
-                          console.error('Supabase delete error:', error);
-                          throw error;
-                        }
-                        
-                        console.log('Deleted anime from Supabase:', data);
-                      } else {
-                        console.log('Skipping Supabase delete for local ID:', selectedAnime.id);
-                      }
-                    } catch (error: any) {
-                      console.error('Failed to delete anime from Supabase:', error);
-                      console.error('Error details:', {
-                        message: error?.message,
-                        details: error?.details,
-                        hint: error?.hint,
-                        code: error?.code,
-                        animeId: selectedAnime.id,
-                        userId: user.id,
-                      });
-                      // エラーが発生してもローカル状態は更新する
-                    }
-                  }
-                  
-                  const updatedSeasons = seasons.map(season => ({
-                    ...season,
-                    animes: season.animes.filter((anime) => anime.id !== selectedAnime.id),
-                  }));
-                  setSeasons(updatedSeasons);
-                  setSelectedAnime(null);
+              <button
+                onClick={() => {
+                  setEditingList(selectedList);
+                  setSelectedList(null);
+                  setShowCreateListModal(true);
                 }}
-                className="flex-1 bg-red-500 text-white py-3 rounded-xl font-bold hover:bg-red-600 transition-colors"
-              >
-                削除
-              </button>
-            <button 
-              onClick={() => setSelectedAnime(null)}
                 className="flex-1 bg-[#ffc2d1] text-white py-3 rounded-xl font-bold hover:bg-[#ffb07c] transition-colors"
-            >
-              閉じる
-            </button>
+              >
+                編集
+              </button>
+              <button
+                onClick={() => setSelectedList(null)}
+                className="flex-1 bg-gray-500 text-white py-3 rounded-xl font-bold hover:bg-gray-600 transition-colors"
+              >
+                閉じる
+              </button>
             </div>
-              </>
-            )}
-
-            {/* 感想タブ */}
-            {animeDetailTab === 'reviews' && (
-              <div className="space-y-4">
-                {/* フィルタとソート */}
-                <div className="flex gap-2 mb-4">
-                  <select
-                    value={reviewFilter}
-                    onChange={(e) => setReviewFilter(e.target.value as 'all' | 'overall' | 'episode')}
-                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ffc2d1] dark:bg-gray-700 dark:text-white text-sm"
-                  >
-                    <option value="all">すべて</option>
-                    <option value="overall">全体感想のみ</option>
-                    <option value="episode">話数感想のみ</option>
-                  </select>
-                  <select
-                    value={reviewSort}
-                    onChange={(e) => setReviewSort(e.target.value as 'newest' | 'likes' | 'helpful')}
-                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ffc2d1] dark:bg-gray-700 dark:text-white text-sm"
-                  >
-                    <option value="newest">新着順</option>
-                    <option value="likes">いいね順</option>
-                    <option value="helpful">役に立った順</option>
-                  </select>
-                </div>
-
-                {/* ネタバレ非表示設定 */}
-                <div className="flex items-center gap-2 mb-4">
-                  <input
-                    type="checkbox"
-                    id="spoilerHidden"
-                    checked={userSpoilerHidden}
-                    onChange={(e) => setUserSpoilerHidden(e.target.checked)}
-                    className="w-4 h-4 text-[#ffc2d1] rounded focus:ring-[#ffc2d1]"
-                  />
-                  <label htmlFor="spoilerHidden" className="text-sm text-gray-700 dark:text-gray-300">
-                    ネタバレを含む感想を非表示
-                  </label>
-                </div>
-
-                {/* 感想投稿ボタン */}
-                {user && (
-                  <button
-                    onClick={() => {
-                      setShowReviewModal(true);
-                    }}
-                    className="w-full bg-[#ffc2d1] text-white py-3 rounded-xl font-bold hover:bg-[#ffb07c] transition-colors mb-4"
-                  >
-                    + 感想を投稿
-                  </button>
-                )}
-
-                {/* 感想一覧 */}
-                {loadingReviews ? (
-                  <div className="text-center py-8">
-                    <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-[#ffc2d1]-600"></div>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">読み込み中...</p>
-                  </div>
-                ) : (() => {
-                  // フィルタリング
-                  let filteredReviews = animeReviews.filter(review => {
-                    if (reviewFilter === 'overall' && review.type !== 'overall') return false;
-                    if (reviewFilter === 'episode' && review.type !== 'episode') return false;
-                    if (userSpoilerHidden && review.containsSpoiler) return false;
-                    return true;
-                  });
-
-                  // ソート
-                  filteredReviews.sort((a, b) => {
-                    switch (reviewSort) {
-                      case 'likes':
-                        return b.likes - a.likes;
-                      case 'helpful':
-                        return b.helpfulCount - a.helpfulCount;
-                      case 'newest':
-                      default:
-                        return b.createdAt.getTime() - a.createdAt.getTime();
-                    }
-                  });
-
-                  // 話数感想をエピソード別にグループ化
-                  const episodeReviews = filteredReviews.filter(r => r.type === 'episode');
-                  const overallReviews = filteredReviews.filter(r => r.type === 'overall');
-                  
-                  const episodeGroups = new Map<number, Review[]>();
-                  episodeReviews.forEach(review => {
-                    if (review.episodeNumber) {
-                      if (!episodeGroups.has(review.episodeNumber)) {
-                        episodeGroups.set(review.episodeNumber, []);
-                      }
-                      episodeGroups.get(review.episodeNumber)!.push(review);
-                    }
-                  });
-
-
-                  return filteredReviews.length > 0 ? (
-                    <div className="space-y-4">
-                      {/* 全体感想 */}
-                      {overallReviews.length > 0 && (
-                        <div>
-                          <h4 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">全体感想</h4>
-                          <div className="space-y-3">
-                            {overallReviews.map((review) => {
-                              const isExpanded = expandedSpoilerReviews.has(review.id);
-                              const shouldCollapse = review.containsSpoiler && !isExpanded;
-                              
-                              return (
-                                <div
-                                  key={review.id}
-                                  className={`bg-gray-50 dark:bg-gray-700 rounded-lg p-4 ${
-                                    review.containsSpoiler ? 'border-l-4 border-yellow-500' : ''
-                                  }`}
-                                >
-                                  {/* ネタバレ警告 */}
-                                  {review.containsSpoiler && (
-                                    <div className="bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-200 text-xs px-3 py-2 rounded mb-2 flex items-center gap-2">
-                                      <span>⚠️</span>
-                                      <span>ネタバレを含む感想です</span>
-                                    </div>
-                                  )}
-
-                                  {/* ユーザー情報 */}
-                                  <div className="flex items-center gap-2 mb-2">
-                                    <span className="text-xl">{review.userIcon}</span>
-                                    <span className="font-bold text-sm dark:text-white">{review.userName}</span>
-                                    <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto">
-                                      {new Date(review.createdAt).toLocaleDateString('ja-JP')}
-                                    </span>
-                                  </div>
-
-                                  {/* 感想本文（折りたたみ可能） */}
-                                  {shouldCollapse ? (
-                                    <button
-                                      onClick={() => {
-                                        const newSet = new Set(expandedSpoilerReviews);
-                                        newSet.add(review.id);
-                                        setExpandedSpoilerReviews(newSet);
-                                      }}
-                                      className="w-full text-left text-sm text-[#ffc2d1] dark:text-[#ffc2d1] hover:underline py-2"
-                                    >
-                                      ▶ クリックして展開
-                                    </button>
-                                  ) : (
-                                    <>
-                                      <p className="text-sm dark:text-white mb-3 whitespace-pre-wrap">{review.content}</p>
-                                      {review.containsSpoiler && (
-                                        <button
-                                          onClick={() => {
-                                            const newSet = new Set(expandedSpoilerReviews);
-                                            newSet.delete(review.id);
-                                            setExpandedSpoilerReviews(newSet);
-                                          }}
-                                          className="text-xs text-gray-500 dark:text-gray-400 hover:underline"
-                                        >
-                                          ▲ 折りたたむ
-                                        </button>
-                                      )}
-                                    </>
-                                  )}
-
-                                  {/* いいね・役に立った */}
-                                  <div className="flex items-center gap-4 mt-3">
-                                    <button
-                                      onClick={async () => {
-                                        if (!user) return;
-                                        
-                                        try {
-                                          const { data: animeData } = await supabase
-                                            .from('animes')
-                                            .select('id')
-                                            .eq('id', selectedAnime.id)
-                                            .eq('user_id', user.id)
-                                            .single();
-                                          
-                                          if (!animeData) return;
-                                          
-                                          if (review.userLiked) {
-                                            await supabase
-                                              .from('review_likes')
-                                              .delete()
-                                              .eq('review_id', review.id)
-                                              .eq('user_id', user.id);
-                                          } else {
-                                            await supabase
-                                              .from('review_likes')
-                                              .insert({
-                                                review_id: review.id,
-                                                user_id: user.id,
-                                              });
-                                          }
-                                          
-                                          loadReviews(selectedAnime.id);
-                                        } catch (error) {
-                                          console.error('Failed to toggle like:', error);
-                                        }
-                                      }}
-                                      className={`flex items-center gap-1 text-sm ${
-                                        review.userLiked
-                                          ? 'text-red-500'
-                                          : 'text-gray-500 dark:text-gray-400'
-                                      }`}
-                                    >
-                                      <span>{review.userLiked ? '❤️' : '🤍'}</span>
-                                      <span>{review.likes}</span>
-                                    </button>
-                                    <button
-                                      onClick={async () => {
-                                        if (!user) return;
-                                        
-                                        try {
-                                          const { data: animeData } = await supabase
-                                            .from('animes')
-                                            .select('id')
-                                            .eq('id', selectedAnime.id)
-                                            .eq('user_id', user.id)
-                                            .single();
-                                          
-                                          if (!animeData) return;
-                                          
-                                          if (review.userHelpful) {
-                                            await supabase
-                                              .from('review_helpful')
-                                              .delete()
-                                              .eq('review_id', review.id)
-                                              .eq('user_id', user.id);
-                                          } else {
-                                            await supabase
-                                              .from('review_helpful')
-                                              .insert({
-                                                review_id: review.id,
-                                                user_id: user.id,
-                                              });
-                                          }
-                                          
-                                          loadReviews(selectedAnime.id);
-                                        } catch (error) {
-                                          console.error('Failed to toggle helpful:', error);
-                                        }
-                                      }}
-                                      className={`flex items-center gap-1 text-sm ${
-                                        review.userHelpful
-                                          ? 'text-blue-500'
-                                          : 'text-gray-500 dark:text-gray-400'
-                                      }`}
-                                    >
-                                      <span>👍</span>
-                                      <span>{review.helpfulCount}</span>
-                                    </button>
-
-                                    {/* 自分の感想の場合、編集・削除ボタン */}
-                                    {user && review.userId === user.id && (
-                                      <div className="ml-auto flex gap-2">
-                                        <button
-                                          onClick={() => {
-                                            setShowReviewModal(true);
-                                          }}
-                                          className="text-xs text-[#ffc2d1] dark:text-[#ffc2d1] hover:underline"
-                                        >
-                                          編集
-                                        </button>
-                                        <button
-                                          onClick={async () => {
-                                            if (!confirm('この感想を削除しますか？')) return;
-                                            
-                                            try {
-                                              await supabase
-                                                .from('reviews')
-                                                .delete()
-                                                .eq('id', review.id);
-                                              
-                                              loadReviews(selectedAnime.id);
-                                            } catch (error) {
-                                              console.error('Failed to delete review:', error);
-                                            }
-                                          }}
-                                          className="text-xs text-red-500 hover:underline"
-                                        >
-                                          削除
-                                        </button>
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* 話数感想（エピソード別にグループ化） */}
-                      {episodeGroups.size > 0 && (
-                        <div>
-                          <h4 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">話数感想</h4>
-                          {Array.from(episodeGroups.entries())
-                            .sort((a, b) => a[0] - b[0])
-                            .map(([episodeNumber, reviews]) => (
-                              <div key={episodeNumber} className="mb-4">
-                                <h5 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
-                                  第{episodeNumber}話の感想 ({reviews.length}件)
-                                </h5>
-                                <div className="space-y-3">
-                                  {reviews.map((review) => {
-                                    const isExpanded = expandedSpoilerReviews.has(review.id);
-                                    const shouldCollapse = review.containsSpoiler && !isExpanded;
-                                    
-                                    return (
-                                      <div
-                                        key={review.id}
-                                        className={`bg-gray-50 dark:bg-gray-700 rounded-lg p-4 ${
-                                          review.containsSpoiler ? 'border-l-4 border-yellow-500' : ''
-                                        }`}
-                                      >
-                                        {/* ネタバレ警告 */}
-                                        {review.containsSpoiler && (
-                                          <div className="bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-200 text-xs px-3 py-2 rounded mb-2 flex items-center gap-2">
-                                            <span>⚠️</span>
-                                            <span>ネタバレを含む感想です</span>
-                                          </div>
-                                        )}
-
-                                        {/* ユーザー情報 */}
-                                        <div className="flex items-center gap-2 mb-2">
-                                          <span className="text-xl">{review.userIcon}</span>
-                                          <span className="font-bold text-sm dark:text-white">{review.userName}</span>
-                                          <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto">
-                                            {new Date(review.createdAt).toLocaleDateString('ja-JP')}
-                                          </span>
-                                        </div>
-
-                                        {/* 感想本文（折りたたみ可能） */}
-                                        {shouldCollapse ? (
-                                          <button
-                                            onClick={() => {
-                                              const newSet = new Set(expandedSpoilerReviews);
-                                              newSet.add(review.id);
-                                              setExpandedSpoilerReviews(newSet);
-                                            }}
-                                            className="w-full text-left text-sm text-[#ffc2d1] dark:text-[#ffc2d1] hover:underline py-2"
-                                          >
-                                            ▶ クリックして展開
-                                          </button>
-                                        ) : (
-                                          <>
-                                            <p className="text-sm dark:text-white mb-3 whitespace-pre-wrap">{review.content}</p>
-                                            {review.containsSpoiler && (
-                                              <button
-                                                onClick={() => {
-                                                  const newSet = new Set(expandedSpoilerReviews);
-                                                  newSet.delete(review.id);
-                                                  setExpandedSpoilerReviews(newSet);
-                                                }}
-                                                className="text-xs text-gray-500 dark:text-gray-400 hover:underline"
-                                              >
-                                                ▲ 折りたたむ
-                                              </button>
-                                            )}
-                                          </>
-                                        )}
-
-                                        {/* いいね・役に立った */}
-                                        <div className="flex items-center gap-4 mt-3">
-                                          <button
-                                            onClick={async () => {
-                                              if (!user) return;
-                                              
-                                              try {
-                                                const { data: animeData } = await supabase
-                                                  .from('animes')
-                                                  .select('id')
-                                                  .eq('id', selectedAnime.id)
-                                                  .eq('user_id', user.id)
-                                                  .single();
-                                                
-                                                if (!animeData) return;
-                                                
-                                                if (review.userLiked) {
-                                                  await supabase
-                                                    .from('review_likes')
-                                                    .delete()
-                                                    .eq('review_id', review.id)
-                                                    .eq('user_id', user.id);
-                                                } else {
-                                                  await supabase
-                                                    .from('review_likes')
-                                                    .insert({
-                                                      review_id: review.id,
-                                                      user_id: user.id,
-                                                    });
-                                                }
-                                                
-                                                loadReviews(selectedAnime.id);
-                                              } catch (error) {
-                                                console.error('Failed to toggle like:', error);
-                                              }
-                                            }}
-                                            className={`flex items-center gap-1 text-sm ${
-                                              review.userLiked
-                                                ? 'text-red-500'
-                                                : 'text-gray-500 dark:text-gray-400'
-                                            }`}
-                                          >
-                                            <span>{review.userLiked ? '❤️' : '🤍'}</span>
-                                            <span>{review.likes}</span>
-                                          </button>
-                                          <button
-                                            onClick={async () => {
-                                              if (!user) return;
-                                              
-                                              try {
-                                                const { data: animeData } = await supabase
-                                                  .from('animes')
-                                                  .select('id')
-                                                  .eq('id', selectedAnime.id)
-                                                  .eq('user_id', user.id)
-                                                  .single();
-                                                
-                                                if (!animeData) return;
-                                                
-                                                if (review.userHelpful) {
-                                                  await supabase
-                                                    .from('review_helpful')
-                                                    .delete()
-                                                    .eq('review_id', review.id)
-                                                    .eq('user_id', user.id);
-                                                } else {
-                                                  await supabase
-                                                    .from('review_helpful')
-                                                    .insert({
-                                                      review_id: review.id,
-                                                      user_id: user.id,
-                                                    });
-                                                }
-                                                
-                                                loadReviews(selectedAnime.id);
-                                              } catch (error) {
-                                                console.error('Failed to toggle helpful:', error);
-                                              }
-                                            }}
-                                            className={`flex items-center gap-1 text-sm ${
-                                              review.userHelpful
-                                                ? 'text-blue-500'
-                                                : 'text-gray-500 dark:text-gray-400'
-                                            }`}
-                                          >
-                                            <span>👍</span>
-                                            <span>{review.helpfulCount}</span>
-                                          </button>
-
-                                          {/* 自分の感想の場合、編集・削除ボタン */}
-                                          {user && review.userId === user.id && (
-                                            <div className="ml-auto flex gap-2">
-                                              <button
-                                                onClick={() => {
-                                                  setShowReviewModal(true);
-                                                }}
-                                                className="text-xs text-[#ffc2d1] dark:text-[#ffc2d1] hover:underline"
-                                              >
-                                                編集
-                                              </button>
-                                              <button
-                                                onClick={async () => {
-                                                  if (!confirm('この感想を削除しますか？')) return;
-                                                  
-                                                  try {
-                                                    await supabase
-                                                      .from('reviews')
-                                                      .delete()
-                                                      .eq('id', review.id);
-                                                    
-                                                    loadReviews(selectedAnime.id);
-                                                  } catch (error) {
-                                                    console.error('Failed to delete review:', error);
-                                                  }
-                                                }}
-                                                className="text-xs text-red-500 hover:underline"
-                                              >
-                                                削除
-                                              </button>
-                                            </div>
-                                          )}
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            ))}
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-center text-gray-500 dark:text-gray-400 py-8">
-                      {user ? 'まだ感想がありません。最初の感想を投稿してみましょう！' : 'ログインすると感想を投稿・閲覧できます'}
-                    </p>
-                  );
-                })()}
-              </div>
-            )}
           </div>
         </div>
       )}
 
+      <AddCharacterModal
+        show={showAddCharacterModal}
+        onClose={() => {
+          setShowAddCharacterModal(false);
+          setEditingCharacter(null);
+        }}
+        allAnimes={allAnimes}
+        editingCharacter={editingCharacter}
+        favoriteCharacters={favoriteCharacters}
+        onSave={(character) => {
+          if (editingCharacter) {
+            // 編集
+            setFavoriteCharacters(favoriteCharacters.map(c =>
+              c.id === editingCharacter.id ? character : c
+            ));
+          } else {
+            // 新規作成
+            setFavoriteCharacters([...favoriteCharacters, character]);
+          }
+          setShowAddCharacterModal(false);
+          setEditingCharacter(null);
+        }}
+      />
+
+      <AddVoiceActorModal
+        show={showAddVoiceActorModal}
+        onClose={() => {
+          setShowAddVoiceActorModal(false);
+          setEditingVoiceActor(null);
+        }}
+        allAnimes={allAnimes}
+        editingVoiceActor={editingVoiceActor}
+        voiceActors={voiceActors}
+        onSave={(actor) => {
+          if (editingVoiceActor) {
+            // 編集
+            setVoiceActors(voiceActors.map(a =>
+              a.id === editingVoiceActor.id ? actor : a
+            ));
+          } else {
+            // 新規作成
+            setVoiceActors([...voiceActors, actor]);
+          }
+          setShowAddVoiceActorModal(false);
+          setEditingVoiceActor(null);
+        }}
+      />
       <CreateListModal
         show={showCreateListModal}
         onClose={() => {
@@ -2657,121 +1353,6 @@ export default function Home() {
         averageRating={averageRating}
       />
 
-      {/* ボトムナビゲーション（スマホ・タブレット） */}
-      <nav className="block lg:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800 border-t dark:border-gray-700 z-10">
-        <div className="max-w-md mx-auto px-4 py-2">
-          <div className="flex justify-around items-center">
-            <button
-              onClick={() => setActiveTab('home')}
-              className={`flex flex-col items-center justify-center py-2 px-4 rounded-lg transition-all ${
-                activeTab === 'home'
-                  ? 'text-[#ffc2d1] dark:text-[#ffc2d1]'
-                  : 'text-gray-500 dark:text-gray-400'
-              }`}
-            >
-              <span className={`text-2xl transition-transform ${activeTab === 'home' ? 'scale-110' : 'scale-100'}`}>
-                📺
-              </span>
-              <span className="text-xs font-medium mt-1">ホーム</span>
-            </button>
-            
-            <button
-              onClick={() => setActiveTab('discover')}
-              className={`flex flex-col items-center justify-center py-2 px-4 rounded-lg transition-all ${
-                activeTab === 'discover'
-                  ? 'text-[#ffc2d1] dark:text-[#ffc2d1]'
-                  : 'text-gray-500 dark:text-gray-400'
-              }`}
-            >
-              <span className={`text-2xl transition-transform ${activeTab === 'discover' ? 'scale-110' : 'scale-100'}`}>
-                📊
-              </span>
-              <span className="text-xs font-medium mt-1">統計</span>
-            </button>
-            
-            <button
-              onClick={() => setActiveTab('collection')}
-              className={`flex flex-col items-center justify-center py-2 px-4 rounded-lg transition-all ${
-                activeTab === 'collection'
-                  ? 'text-[#ffc2d1] dark:text-[#ffc2d1]'
-                  : 'text-gray-500 dark:text-gray-400'
-              }`}
-            >
-              <span className={`text-2xl transition-transform ${activeTab === 'collection' ? 'scale-110' : 'scale-100'}`}>
-                🏆
-              </span>
-              <span className="text-xs font-medium mt-1">コレクション</span>
-            </button>
-            
-            <button
-              onClick={() => setActiveTab('profile')}
-              className={`flex flex-col items-center justify-center py-2 px-4 rounded-lg transition-all ${
-                activeTab === 'profile'
-                  ? 'text-[#ffc2d1] dark:text-[#ffc2d1]'
-                  : 'text-gray-500 dark:text-gray-400'
-              }`}
-            >
-              <span className={`text-2xl transition-transform ${activeTab === 'profile' ? 'scale-110' : 'scale-100'}`}>
-                👤
-              </span>
-              <span className="text-xs font-medium mt-1">マイページ</span>
-            </button>
-          </div>
-        </div>
-      </nav>
-
-      {/* サイドバーナビゲーション（PC） */}
-      <nav className="hidden lg:flex fixed left-0 top-0 bottom-0 w-[200px] bg-white dark:bg-gray-800 border-r dark:border-gray-700 z-10 flex-col pt-20">
-        <div className="flex flex-col gap-2 px-2">
-          <button
-            onClick={() => setActiveTab('home')}
-            className={`flex items-center gap-3 py-3 px-4 rounded-lg transition-all ${
-              activeTab === 'home'
-                ? 'bg-[#ffc2d1]/20 dark:bg-[#ffc2d1]/20 text-[#ffc2d1] dark:text-[#ffc2d1]'
-                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-            }`}
-          >
-            <span className="text-2xl">📺</span>
-            <span className="font-medium">ホーム</span>
-          </button>
-          
-          <button
-            onClick={() => setActiveTab('discover')}
-            className={`flex items-center gap-3 py-3 px-4 rounded-lg transition-all ${
-              activeTab === 'discover'
-                ? 'bg-[#ffc2d1]/20 dark:bg-[#ffc2d1]/20 text-[#ffc2d1] dark:text-[#ffc2d1]'
-                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-            }`}
-          >
-            <span className="text-2xl">📊</span>
-            <span className="font-medium">統計</span>
-          </button>
-          
-          <button
-            onClick={() => setActiveTab('collection')}
-            className={`flex items-center gap-3 py-3 px-4 rounded-lg transition-all ${
-              activeTab === 'collection'
-                ? 'bg-[#ffc2d1]/20 dark:bg-[#ffc2d1]/20 text-[#ffc2d1] dark:text-[#ffc2d1]'
-                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-            }`}
-          >
-            <span className="text-2xl">🏆</span>
-            <span className="font-medium">コレクション</span>
-          </button>
-          
-          <button
-            onClick={() => setActiveTab('profile')}
-            className={`flex items-center gap-3 py-3 px-4 rounded-lg transition-all ${
-              activeTab === 'profile'
-                ? 'bg-[#ffc2d1]/20 dark:bg-[#ffc2d1]/20 text-[#ffc2d1] dark:text-[#ffc2d1]'
-                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-            }`}
-          >
-            <span className="text-2xl">👤</span>
-            <span className="font-medium">マイページ</span>
-          </button>
-        </div>
-      </nav>
     </div>
   );
 }
