@@ -9,6 +9,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 export type UserProfile = {
   id: string;
   username: string;
+  handle: string | null; // @で始まるハンドル（@なしで保存）
   bio: string | null;
   is_public: boolean;
   created_at: string;
@@ -22,14 +23,52 @@ export type Follow = {
   created_at: string;
 };
 
-// ユーザー検索
+// UUID形式かどうかを判定する関数
+function isUUID(str: string): boolean {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(str);
+}
+
+// ハンドル形式かどうかを判定する関数（@で始まる、英数字・アンダースコア・ハイフンのみ）
+function isHandle(str: string): boolean {
+  const handleRegex = /^@?[a-z0-9_]+$/i;
+  return handleRegex.test(str);
+}
+
+// ハンドルから@を除去して正規化
+function normalizeHandle(handle: string): string {
+  return handle.startsWith('@') ? handle.substring(1).toLowerCase() : handle.toLowerCase();
+}
+
+// ユーザー検索（ユーザー名またはハンドルで検索）
 export async function searchUsers(query: string): Promise<UserProfile[]> {
   if (!query.trim()) return [];
   
+  const trimmedQuery = query.trim();
+  
+  // ハンドル形式の場合はhandleで検索
+  if (isHandle(trimmedQuery)) {
+    const normalizedHandle = normalizeHandle(trimmedQuery);
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('handle', normalizedHandle)
+      .eq('is_public', true)
+      .limit(20);
+    
+    if (error) {
+      console.error('Failed to search users by handle:', error);
+      return [];
+    }
+    
+    return data || [];
+  }
+  
+  // ユーザー名で検索
   const { data, error } = await supabase
     .from('user_profiles')
     .select('*')
-    .ilike('username', `%${query}%`)
+    .ilike('username', `%${trimmedQuery}%`)
     .eq('is_public', true)
     .limit(20);
   
@@ -227,17 +266,24 @@ export async function getFollowCounts(userId: string): Promise<{ following: numb
 // プロフィール作成・更新
 export async function upsertUserProfile(profile: {
   username: string;
+  handle?: string | null;
   bio?: string;
   is_public?: boolean;
 }): Promise<boolean> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return false;
   
+  // handleを正規化（@を除去、小文字に変換）
+  const normalizedProfile = {
+    ...profile,
+    handle: profile.handle ? normalizeHandle(profile.handle) : null,
+  };
+  
   const { error } = await supabase
     .from('user_profiles')
     .upsert({
       id: user.id,
-      ...profile,
+      ...normalizedProfile,
       updated_at: new Date().toISOString(),
     });
   
@@ -283,6 +329,27 @@ export async function getProfileByUsername(username: string): Promise<UserProfil
     // プロフィールが存在しない場合はnullを返す
     if (error.code === 'PGRST116') return null;
     console.error('Failed to get profile by username:', error);
+    return null;
+  }
+  
+  return data;
+}
+
+// handleで公開プロフィールを取得
+export async function getProfileByHandle(handle: string): Promise<UserProfile | null> {
+  const normalizedHandle = normalizeHandle(handle);
+  
+  const { data, error } = await supabase
+    .from('user_profiles')
+    .select('*')
+    .eq('handle', normalizedHandle)
+    .eq('is_public', true)
+    .single();
+  
+  if (error) {
+    // プロフィールが存在しない場合はnullを返す
+    if (error.code === 'PGRST116') return null;
+    console.error('Failed to get profile by handle:', error);
     return null;
   }
   

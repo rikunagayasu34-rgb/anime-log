@@ -3,9 +3,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from './lib/supabase';
 import type { User } from '@supabase/supabase-js';
-import type { SupabaseClient } from '@supabase/supabase-js';
 import { searchAnime, searchAnimeBySeason } from './lib/anilist';
 import type { UserProfile } from './lib/supabase';
+import { QRCodeSVG } from 'qrcode.react';
 import { 
   searchUsers, 
   getRecommendedUsers, 
@@ -18,8 +18,7 @@ import {
   isFollowing,
   getFollowCounts,
   upsertUserProfile,
-  getMyProfile,
-  getProfileByUsername
+  getMyProfile
 } from './lib/supabase';
 
 // シーズンの型定義
@@ -95,27 +94,6 @@ type EvangelistList = {
   description: string;
   animeIds: number[];
   createdAt: Date;
-};
-
-// AniList APIレスポンスの型
-type AniListMedia = {
-  id: number;
-  title?: {
-    native?: string;
-    romaji?: string;
-  };
-  coverImage?: {
-    medium?: string;
-    large?: string;
-  };
-  seasonYear?: number;
-  season?: string;
-  genres?: string[];
-  format?: string;
-  episodes?: number;
-  studios?: {
-    nodes?: Array<{ name: string }>;
-  };
 };
 
 // 推しキャラの型定義
@@ -330,6 +308,7 @@ function ProfileTab({
   seasons,
   userName,
   userIcon,
+  userHandle,
   averageRating,
   isDarkMode,
   setIsDarkMode,
@@ -352,12 +331,21 @@ function ProfileTab({
   userBio,
   setUserBio,
   upsertUserProfile,
-  myProfile,
+  userSearchQuery,
+  setUserSearchQuery,
+  searchedUsers,
+  recommendedUsers,
+  isSearchingUsers,
+  handleUserSearch,
+  handleViewUserProfile,
+  handleToggleFollow,
+  userFollowStatus,
 }: {
   allAnimes: Anime[];
   seasons: Season[];
   userName: string;
   userIcon: string;
+  userHandle: string;
   averageRating: number;
   isDarkMode: boolean;
   setIsDarkMode: (value: boolean) => void;
@@ -380,13 +368,19 @@ function ProfileTab({
   userBio: string;
   setUserBio: (bio: string) => void;
   upsertUserProfile: (profile: { username: string; bio?: string; is_public?: boolean }) => Promise<boolean>;
-  myProfile: UserProfile | null;
+  userSearchQuery: string;
+  setUserSearchQuery: (query: string) => void;
+  searchedUsers: UserProfile[];
+  recommendedUsers: UserProfile[];
+  isSearchingUsers: boolean;
+  handleUserSearch: () => Promise<void>;
+  handleViewUserProfile: (userId: string) => Promise<void>;
+  handleToggleFollow: (userId: string) => Promise<void>;
+  userFollowStatus: { [userId: string]: boolean };
 }) {
-  const [isEditingName, setIsEditingName] = useState(false);
-  const [isEditingBio, setIsEditingBio] = useState(false);
-  const [showIconPicker, setShowIconPicker] = useState(false);
-  const [showOtakuTypePicker, setShowOtakuTypePicker] = useState(false);
+  const [isDNACardVisible, setIsDNACardVisible] = useState(true);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [isHandleVisible, setIsHandleVisible] = useState(true);
   
   const handleSaveProfile = async () => {
     if (user) {
@@ -440,210 +434,8 @@ function ProfileTab({
   
   return (
     <div className="space-y-6">
-      {/* プロフィールカード */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-md">
-        {/* ヘッダー部分 */}
-        <div className="flex flex-col items-center mb-6">
-          <button
-            onClick={() => setShowIconPicker(!showIconPicker)}
-            className="relative mb-3"
-          >
-            <div className="w-24 h-24 rounded-full bg-linear-to-br from-[#ffc2d1] to-[#ffb07c] flex items-center justify-center text-5xl shadow-lg hover:scale-105 transition-transform">
-              {userIcon}
-            </div>
-            <div className="absolute bottom-0 right-0 bg-[#ffc2d1] rounded-full p-1.5">
-              <span className="text-xs">✏️</span>
-            </div>
-          </button>
-          
-          {/* アイコン選択 */}
-          {showIconPicker && (
-            <div className="absolute z-10 bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-xl border border-gray-200 dark:border-gray-700 mt-32">
-              <div className="grid grid-cols-8 gap-2 max-h-64 overflow-y-auto">
-                {['👤', '😊', '🎮', '🎬', '📺', '🎨', '⚡', '🔥', '🌟', '💫', '🎯', '🚀', '🎪', '🎭', '🎸', '🎵', '🎹', '🎤', '🎧', '🎺', '🎷', '🥁', '🎲', '🎰'].map((icon) => (
-                  <button
-                    key={icon}
-                    onClick={() => {
-                      setUserIcon(icon);
-                      setShowIconPicker(false);
-                      handleSaveProfile();
-                    }}
-                    className={`text-3xl p-2 rounded-lg transition-all ${
-                      userIcon === icon
-                        ? 'bg-[#ffc2d1]/20 dark:bg-[#ffc2d1]/20 ring-2 ring-[#ffc2d1]'
-                        : 'bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600'
-                    }`}
-                  >
-                    {icon}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          
-          {/* ユーザー名編集 */}
-          <div className="flex items-center justify-center gap-2 w-full max-w-xs">
-            {isEditingName ? (
-              <div className="flex items-center gap-2 w-full">
-                <input
-                  type="text"
-                  value={userName}
-                  onChange={(e) => setUserName(e.target.value)}
-                  onBlur={() => {
-                    setIsEditingName(false);
-                    handleSaveProfile();
-                  }}
-                  onKeyPress={(e) => {
-                    if (e.key === 'Enter') {
-                      setIsEditingName(false);
-                      handleSaveProfile();
-                    }
-                  }}
-                  className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ffc2d1] dark:bg-gray-700 dark:text-white text-center text-xl font-bold"
-                  autoFocus
-                />
-              </div>
-            ) : (
-              <div className="flex items-center justify-center gap-2 mb-2">
-                <h2 
-                  onClick={() => setIsEditingName(true)}
-                  className="text-xl font-bold text-[#6b5b6e] dark:text-white cursor-pointer hover:text-[#ffc2d1] transition-colors flex items-center gap-2"
-                >
-                  {userName}
-                  <span className="text-sm">✏️</span>
-                </h2>
-                {/* 共有ボタン（3点リーダー） */}
-                {user && myProfile && myProfile.username && isProfilePublic && (
-                  <button
-                    onClick={() => setShowShareModal(true)}
-                    className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
-                    title="プロフィールを共有"
-                  >
-                    <span className="text-xl">⋮</span>
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-        
-        {/* フォロー数・フォロワー数 */}
-        {user && (
-          <div className="flex gap-4 mb-6 pb-6 border-b border-gray-200 dark:border-gray-700">
-            <button
-              onClick={() => {
-                setFollowListType('following');
-                setShowFollowListModal(true);
-              }}
-              className="flex-1 text-center hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg py-2 transition-colors"
-            >
-              <p className="text-2xl font-bold dark:text-white">{followCounts.following}</p>
-              <p className="text-sm text-gray-600 dark:text-gray-400">フォロー中</p>
-            </button>
-            <button
-              onClick={() => {
-                setFollowListType('followers');
-                setShowFollowListModal(true);
-              }}
-              className="flex-1 text-center hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg py-2 transition-colors"
-            >
-              <p className="text-2xl font-bold dark:text-white">{followCounts.followers}</p>
-              <p className="text-sm text-gray-600 dark:text-gray-400">フォロワー</p>
-            </button>
-          </div>
-        )}
-        
-        {/* プロフィール編集項目 */}
-        <div className="space-y-4">
-          {/* プロフィール公開設定 */}
-          {user && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                プロフィールを公開
-              </label>
-              <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-xl">
-                <span className="text-sm dark:text-white">
-                  {isProfilePublic ? '他のユーザーから見える' : '非公開'}
-                </span>
-                <button
-                  onClick={() => {
-                    setIsProfilePublic(!isProfilePublic);
-                    handleSaveProfile();
-                  }}
-                  className={`relative w-12 h-6 rounded-full transition-colors ${
-                    isProfilePublic ? 'bg-[#ffc2d1]' : 'bg-gray-300 dark:bg-gray-600'
-                  }`}
-                >
-                  <div
-                    className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${
-                      isProfilePublic ? 'translate-x-6' : 'translate-x-0'
-                    }`}
-                  />
-                </button>
-              </div>
-            </div>
-          )}
-          
-          {/* 自己紹介 */}
-          {user && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                自己紹介 {!isProfilePublic && '(公開時のみ表示されます)'}
-              </label>
-              {isEditingBio ? (
-                <div className="space-y-2">
-                  <textarea
-                    value={userBio}
-                    onChange={(e) => setUserBio(e.target.value)}
-                    onBlur={() => {
-                      setIsEditingBio(false);
-                      handleSaveProfile();
-                    }}
-                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ffc2d1] dark:bg-gray-700 dark:text-white"
-                    placeholder="自己紹介を入力..."
-                    rows={3}
-                    autoFocus
-                  />
-                  <button
-                    onClick={() => {
-                      setIsEditingBio(false);
-                      handleSaveProfile();
-                    }}
-                    className="text-sm text-[#ffc2d1] hover:underline"
-                  >
-                    保存
-                  </button>
-                </div>
-              ) : (
-                <div
-                  onClick={() => setIsEditingBio(true)}
-                  className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 rounded-xl min-h-[60px] cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors flex items-start"
-                >
-                  {userBio ? (
-                    <p className="text-sm dark:text-white flex-1">{userBio}</p>
-                  ) : (
-                    <p className="text-sm text-gray-400 flex-1">自己紹介を入力... (タップして編集)</p>
-                  )}
-                  <span className="text-xs text-gray-400 ml-2">✏️</span>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-        
-        {/* アプリ設定ボタン */}
-        <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
-          <button
-            onClick={() => setShowSettings(true)}
-            className="w-full px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-xl transition-colors"
-          >
-            ⚙️ アプリ設定
-          </button>
-        </div>
-      </div>
-      
       {/* DNAカード */}
-      {(() => {
+      {isDNACardVisible && (() => {
         const allAnimes = seasons.flatMap(s => s.animes);
         const count = allAnimes.filter(a => a.watched).length;
         const totalRewatchCount = allAnimes.reduce((sum, a) => sum + (a.rewatchCount ?? 0), 0);
@@ -691,7 +483,25 @@ function ProfileTab({
               {/* タイトル */}
               <div className="text-center mb-4">
                 <h2 className="text-white text-xl font-black mb-1">MY ANIME DNA {new Date().getFullYear()}</h2>
-                <span className="text-2xl">✨</span>
+              </div>
+              
+              {/* プロフィール画像と名前（Twitter風） */}
+              <div className="text-center mb-4">
+                <div className="w-20 h-20 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center text-4xl mx-auto mb-2 shadow-lg">
+                  {userIcon}
+                </div>
+                <p className="text-white text-lg font-bold">
+                  {userName}
+                </p>
+                {userHandle ? (
+                  <p className="text-white/80 text-sm mt-1">
+                    {isHandleVisible ? `@${userHandle}` : '@XXXX'}
+                  </p>
+                ) : (
+                  <p className="text-white/80 text-sm mt-1">
+                    {isHandleVisible ? '' : '@XXXX'}
+                  </p>
+                )}
               </div>
               
               {/* オタクタイプ */}
@@ -808,23 +618,7 @@ function ProfileTab({
                 <span>画像を保存</span>
               </button>
               <button
-                onClick={async () => {
-                  // Web Share API
-                  if (navigator.share) {
-                    try {
-                      await navigator.share({
-                        title: `MY ANIME DNA ${new Date().getFullYear()}`,
-                        text: `私のアニメDNA: ${otakuType}`,
-                      });
-                    } catch (error) {
-                      console.error('Share failed:', error);
-                    }
-                  } else {
-                    // フォールバック: URLをクリップボードにコピー
-                    await navigator.clipboard.writeText(window.location.href);
-                    alert('URLをクリップボードにコピーしました');
-                  }
-                }}
+                onClick={() => setShowShareModal(true)}
                 className="flex-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 py-3 rounded-xl font-bold hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors flex items-center justify-center gap-2"
               >
                 <span>📤</span>
@@ -835,105 +629,123 @@ function ProfileTab({
         );
       })()}
       
-      {/* DNAカード編集設定 */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-md mt-6">
-        <h3 className="font-bold text-lg mb-4 text-[#6b5b6e] dark:text-white">DNAカード編集</h3>
-        <div className="space-y-4">
-          {/* オタクタイプ */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              オタクタイプ
-            </label>
-            <button
-              onClick={() => setShowOtakuTypePicker(!showOtakuTypePicker)}
-              className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 rounded-xl text-left hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="text-xl">
-                    {userOtakuType 
-                      ? otakuTypes.find(t => t.value === userOtakuType)?.emoji || '🤖'
-                      : '🤖'
-                    }
-                  </span>
-                  <span className="font-medium dark:text-white">
-                    {userOtakuType 
-                      ? otakuTypes.find(t => t.value === userOtakuType)?.label || '自動判定'
-                      : '自動判定'
-                    }
-                  </span>
+      {/* ハンドル表示/非表示切り替え */}
+      <div className="flex items-center justify-between bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md">
+        <div className="flex items-center gap-3">
+          <span className="text-xl">🔒</span>
+          <span className="dark:text-white font-medium">ハンドルを表示</span>
+        </div>
+        <button
+          onClick={() => setIsHandleVisible(!isHandleVisible)}
+          className={`relative w-12 h-6 rounded-full transition-colors ${
+            isHandleVisible ? 'bg-[#ffc2d1]' : 'bg-gray-300 dark:bg-gray-600'
+          }`}
+        >
+          <div
+            className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${
+              isHandleVisible ? 'translate-x-6' : 'translate-x-0'
+            }`}
+          />
+        </button>
+      </div>
+
+      {/* シェアモーダル */}
+      {showShareModal && (
+        <div 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          onClick={() => setShowShareModal(false)}
+        >
+          <div 
+            className="bg-white dark:bg-gray-800 rounded-3xl max-w-sm w-full p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold dark:text-white">シェア</h3>
+              <button
+                onClick={() => setShowShareModal(false)}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
+              >
+                <span className="text-2xl">✕</span>
+              </button>
+            </div>
+
+            {/* QRコード */}
+            <div className="flex flex-col items-center mb-6">
+              <div className="relative bg-gradient-to-br from-[#ffc2d1] via-[#ffb07c] to-[#ffc2d1] p-6 rounded-3xl shadow-xl mb-4">
+                <div className="bg-white p-4 rounded-2xl">
+                  <QRCodeSVG
+                    value={typeof window !== 'undefined' ? window.location.href : ''}
+                    size={200}
+                    level="H"
+                    includeMargin={true}
+                    fgColor="#1f2937"
+                    bgColor="#ffffff"
+                  />
                 </div>
-                <span className="text-gray-400">▼</span>
+                {/* 装飾的な角 */}
+                <div className="absolute top-2 left-2 w-4 h-4 border-2 border-white/50 rounded-tl-3xl"></div>
+                <div className="absolute top-2 right-2 w-4 h-4 border-2 border-white/50 rounded-tr-3xl"></div>
+                <div className="absolute bottom-2 left-2 w-4 h-4 border-2 border-white/50 rounded-bl-3xl"></div>
+                <div className="absolute bottom-2 right-2 w-4 h-4 border-2 border-white/50 rounded-br-3xl"></div>
               </div>
-            </button>
-            
-            {showOtakuTypePicker && (
-              <div className="mt-2 space-y-2 max-h-60 overflow-y-auto bg-white dark:bg-gray-800 rounded-xl p-2 border border-gray-200 dark:border-gray-700">
-                <button
-                  onClick={() => {
-                    setUserOtakuType('');
-                    setShowOtakuTypePicker(false);
-                    handleSaveProfile();
-                  }}
-                  className={`w-full text-left px-4 py-3 rounded-xl border-2 transition-all ${
-                    !userOtakuType
-                      ? 'border-[#ffc2d1] bg-[#ffc2d1]/10 dark:bg-[#ffc2d1]/10'
-                      : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-700 hover:border-[#ffc2d1]'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-xl">🤖</span>
-                    <div>
-                      <p className="font-medium dark:text-white">自動判定</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">タグから自動で判定されます</p>
-                    </div>
-                  </div>
-                </button>
-                {otakuTypes.map((type) => (
-                  <button
-                    key={type.value}
-                    onClick={() => {
-                      setUserOtakuType(type.value);
-                      setShowOtakuTypePicker(false);
-                      handleSaveProfile();
-                    }}
-                    className={`w-full text-left px-4 py-3 rounded-xl border-2 transition-all ${
-                      userOtakuType === type.value
-                        ? 'border-[#ffc2d1] bg-[#ffc2d1]/10 dark:bg-[#ffc2d1]/10'
-                        : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-700 hover:border-[#ffc2d1]'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-xl">{type.emoji}</span>
-                      <div>
-                        <p className="font-medium dark:text-white">{type.label}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">{type.description}</p>
-                      </div>
-                    </div>
-                  </button>
-                ))}
+              <p className="text-sm text-gray-600 dark:text-gray-400 text-center font-medium">
+                QRコードをスキャンしてプロフィールを開く
+              </p>
+            </div>
+
+            {/* リンクコピー */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 p-4 bg-gray-50 dark:bg-gray-700 rounded-xl">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">プロフィールURL</p>
+                  <p className="text-sm font-mono text-gray-700 dark:text-gray-300 truncate">
+                    {typeof window !== 'undefined' ? window.location.href : ''}
+                  </p>
+                </div>
               </div>
+              <button
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(typeof window !== 'undefined' ? window.location.href : '');
+                    alert('リンクをクリップボードにコピーしました');
+                  } catch (error) {
+                    console.error('Failed to copy link:', error);
+                    alert('リンクのコピーに失敗しました');
+                  }
+                }}
+                className="w-full bg-[#ffc2d1] text-white py-3 rounded-xl font-bold hover:bg-[#ffb07c] transition-colors flex items-center justify-center gap-2"
+              >
+                <span>📋</span>
+                <span>リンクをコピー</span>
+              </button>
+            </div>
+
+            {/* Web Share API（モバイル対応） */}
+            {typeof navigator !== 'undefined' && navigator.share && (
+              <button
+                onClick={async () => {
+                  try {
+                    await navigator.share({
+                      title: `${userName}のアニメDNA`,
+                      text: `${userName}のアニメログをチェック！`,
+                      url: typeof window !== 'undefined' ? window.location.href : '',
+                    });
+                  } catch (error) {
+                    // ユーザーがキャンセルした場合はエラーを無視
+                    if ((error as Error).name !== 'AbortError') {
+                      console.error('Share failed:', error);
+                    }
+                  }
+                }}
+                className="w-full mt-3 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 py-3 rounded-xl font-bold hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors flex items-center justify-center gap-2"
+              >
+                <span>📤</span>
+                <span>アプリでシェア</span>
+              </button>
             )}
           </div>
-          
-          {/* 最推し作品 */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              最推し作品（最大3作品）
-            </label>
-            <button
-              onClick={() => {
-                setShowFavoriteAnimeModal(true);
-              }}
-              className="w-full px-4 py-3 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl text-gray-600 dark:text-gray-400 hover:border-[#ffc2d1] hover:text-[#ffc2d1] transition-colors text-left"
-            >
-              {favoriteAnimeIds.length > 0
-                ? `${favoriteAnimeIds.length}作品が設定されています`
-                : '最推し作品を選択'}
-            </button>
-          </div>
         </div>
-      </div>
+      )}
       
       {/* お気に入りジャンル */}
       {sortedTags.length > 0 && (
@@ -967,10 +779,118 @@ function ProfileTab({
         </div>
       )}
       
+      {/* ユーザー検索 */}
+      <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md">
+        <h3 className="font-bold text-lg mb-3 text-[#6b5b6e] dark:text-white">ユーザー検索</h3>
+        <div className="space-y-4">
+          {/* 検索バー */}
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={userSearchQuery}
+              onChange={(e) => setUserSearchQuery(e.target.value)}
+              onKeyPress={(e) => {
+                if (e.key === 'Enter') {
+                  handleUserSearch();
+                }
+              }}
+              placeholder="ユーザー名または@ハンドルで検索..."
+              className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ffc2d1] dark:bg-gray-700 dark:text-white"
+            />
+            <button
+              onClick={handleUserSearch}
+              disabled={isSearchingUsers}
+              className="px-6 py-2 bg-[#ffc2d1] text-white rounded-xl font-medium hover:bg-[#ffb07c] transition-colors disabled:opacity-50"
+            >
+              {isSearchingUsers ? '検索中...' : '検索'}
+            </button>
+          </div>
+          
+          {/* 検索結果 */}
+          {userSearchQuery.trim() && searchedUsers.length > 0 && (
+            <div>
+              <h4 className="font-bold text-sm mb-2 dark:text-white">検索結果</h4>
+              <div className="space-y-2">
+                {searchedUsers.map((u) => (
+                  <UserCard
+                    key={u.id}
+                    user={u}
+                    onUserClick={() => handleViewUserProfile(u.id)}
+                    onFollowClick={() => handleToggleFollow(u.id)}
+                    isFollowing={userFollowStatus[u.id] || false}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+          
+          {/* おすすめユーザー */}
+          <div>
+            <h4 className="font-bold text-sm mb-2 dark:text-white">おすすめユーザー</h4>
+            {recommendedUsers.length > 0 ? (
+              <div className="space-y-2">
+                {recommendedUsers.map((u) => (
+                  <UserCard
+                    key={u.id}
+                    user={u}
+                    onUserClick={() => handleViewUserProfile(u.id)}
+                    onFollowClick={() => handleToggleFollow(u.id)}
+                    isFollowing={userFollowStatus[u.id] || false}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-500 dark:text-gray-400 text-center py-4 text-sm">
+                公開プロフィールのユーザーがいません
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+      
       {/* 設定 */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md">
         <h3 className="font-bold text-lg mb-3 text-[#6b5b6e] dark:text-white">設定</h3>
         <div className="space-y-3">
+          {/* 自分のID表示 */}
+          {user && (
+            <div className="px-4 py-3 bg-gray-50 dark:bg-gray-700 rounded-xl">
+              <div className="flex items-center justify-between">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">自分のID</p>
+                  <p className="text-sm font-mono dark:text-white truncate">{user.id}</p>
+                </div>
+                <button
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(user.id);
+                      alert('IDをクリップボードにコピーしました');
+                    } catch (error) {
+                      console.error('Failed to copy ID:', error);
+                      alert('IDのコピーに失敗しました');
+                    }
+                  }}
+                  className="ml-3 px-3 py-1.5 bg-[#ffc2d1] text-white rounded-lg text-xs font-medium hover:bg-[#ffb07c] transition-colors shrink-0"
+                  title="IDをコピー"
+                >
+                  コピー
+                </button>
+              </div>
+            </div>
+          )}
+          
+          {/* DNAカード編集 */}
+          <button
+            onClick={() => setShowSettings(true)}
+            className="w-full px-4 py-3 text-left bg-gray-50 dark:bg-gray-700 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors flex items-center justify-between"
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-xl">🎨</span>
+              <span className="dark:text-white font-medium">DNAカード編集</span>
+            </div>
+            <span className="text-gray-400">›</span>
+          </button>
+          
           {/* ダークモード切り替え */}
           <div className="flex items-center justify-between">
             <span className="dark:text-white">ダークモード</span>
@@ -1006,87 +926,6 @@ function ProfileTab({
         </div>
       </div>
 
-      {/* 共有メニューモーダル */}
-      {showShareModal && myProfile && myProfile.username && (
-        <div
-          className="fixed inset-0 bg-black/50 flex items-end justify-center z-50 p-4"
-          onClick={() => setShowShareModal(false)}
-        >
-          <div
-            className="bg-white dark:bg-gray-800 rounded-t-3xl w-full max-w-md shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-center pt-4 pb-2 border-b border-gray-200 dark:border-gray-700">
-              <div className="w-12 h-1 bg-gray-300 dark:bg-gray-600 rounded-full" />
-            </div>
-            
-            <div className="p-4">
-              <h3 className="text-lg font-bold text-center dark:text-white mb-4">プロフィールを共有</h3>
-              
-              <div className="space-y-2">
-                {/* プロフィールを共有（Web Share API） */}
-                <button
-                  onClick={async () => {
-                    const profileUrl = `${window.location.origin}/profile/${myProfile.username}`;
-                    const shareText = myProfile.bio 
-                      ? `${myProfile.username}のアニメログをチェックしよう！\n${myProfile.bio}`
-                      : `${myProfile.username}のアニメログをチェックしよう！`;
-                    
-                    if (navigator.share) {
-                      try {
-                        await navigator.share({
-                          title: `${myProfile.username}のプロフィール`,
-                          text: shareText,
-                          url: profileUrl,
-                        });
-                        setShowShareModal(false);
-                      } catch (error) {
-                        // ユーザーがキャンセルした場合などはエラーを無視
-                        if ((error as Error).name !== 'AbortError') {
-                          console.error('Share failed:', error);
-                        }
-                      }
-                    } else {
-                      // Web Share API非対応の場合はクリップボードにコピー
-                      await navigator.clipboard.writeText(profileUrl);
-                      alert('リンクをクリップボードにコピーしました');
-                      setShowShareModal(false);
-                    }
-                  }}
-                  className="w-full py-4 text-center font-semibold text-[#ffc2d1] hover:bg-gray-50 dark:hover:bg-gray-700 rounded-xl transition-colors"
-                >
-                  プロフィールを共有
-                </button>
-                
-                {/* リンクをコピー */}
-                <button
-                  onClick={async () => {
-                    const profileUrl = `${window.location.origin}/profile/${myProfile.username}`;
-                    try {
-                      await navigator.clipboard.writeText(profileUrl);
-                      alert('リンクをクリップボードにコピーしました');
-                      setShowShareModal(false);
-                    } catch (error) {
-                      console.error('Failed to copy:', error);
-                      alert('コピーに失敗しました');
-                    }
-                  }}
-                  className="w-full py-4 text-center font-semibold text-[#ffc2d1] hover:bg-gray-50 dark:hover:bg-gray-700 rounded-xl transition-colors"
-                >
-                  リンクをコピー
-                </button>
-              </div>
-              
-              <button
-                onClick={() => setShowShareModal(false)}
-                className="w-full mt-4 py-4 text-center font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-xl transition-colors border-t border-gray-200 dark:border-gray-700"
-              >
-                キャンセル
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -1100,8 +939,8 @@ function AchievementsTab({
 }: { 
   allAnimes: Anime[]; 
   achievements: Achievement[];
-  user: User | null;
-  supabase: SupabaseClient;
+  user: any;
+  supabase: any;
 }) {
   const [selectedAchievement, setSelectedAchievement] = useState<Achievement | null>(null);
   const [reviewStats, setReviewStats] = useState<{
@@ -1128,8 +967,8 @@ function AchievementsTab({
         if (error) throw error;
         
         const reviewCount = reviews?.length || 0;
-        const totalLikes = reviews?.reduce((sum: number, r: { likes?: number }) => sum + (r.likes || 0), 0) || 0;
-        const totalHelpful = reviews?.reduce((sum: number, r: { helpful_count?: number }) => sum + (r.helpful_count || 0), 0) || 0;
+        const totalLikes = reviews?.reduce((sum: number, r: any) => sum + (r.likes || 0), 0) || 0;
+        const totalHelpful = reviews?.reduce((sum: number, r: any) => sum + (r.helpful_count || 0), 0) || 0;
         
         setReviewStats({ reviewCount, totalLikes, totalHelpful });
       } catch (error) {
@@ -1293,8 +1132,8 @@ function MusicTab({
   setNewSongTitle: (title: string) => void;
   setNewSongArtist: (artist: string) => void;
   setShowSongModal: (show: boolean) => void;
-  user: User | null;
-  supabase: SupabaseClient;
+  user: any;
+  supabase: any;
 }) {
   const [musicSearchQuery, setMusicSearchQuery] = useState('');
   const [musicFilterType, setMusicFilterType] = useState<'all' | 'op' | 'ed' | 'artist'>('all');
@@ -1652,7 +1491,6 @@ function AnimeCard({ anime, onClick }: { anime: Anime; onClick: () => void }) {
   
   // コンポーネントがマウントされた時、またはimageが変わった時にリセット
   useEffect(() => {
-    
     if (isImageUrl) {
       setImageLoading(true);
       setImageError(false);
@@ -1661,6 +1499,7 @@ function AnimeCard({ anime, onClick }: { anime: Anime; onClick: () => void }) {
       setImageError(false);
     }
   }, [anime.image]);
+  
   return (
     <div 
       onClick={onClick}
@@ -1764,6 +1603,9 @@ function UserCard({
         </div>
         <div className="flex-1 min-w-0">
           <p className="font-bold text-sm dark:text-white truncate">{user.username}</p>
+          {user.handle && (
+            <p className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">@{user.handle}</p>
+          )}
           {user.bio && (
             <p className="text-xs text-gray-500 dark:text-gray-400 truncate mt-1">{user.bio}</p>
           )}
@@ -1796,13 +1638,14 @@ export default function Home() {
   const [showFavoriteAnimeModal, setShowFavoriteAnimeModal] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showDNAModal, setShowDNAModal] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
   const [newAnimeTitle, setNewAnimeTitle] = useState('');
   const [newAnimeIcon, setNewAnimeIcon] = useState('🎬');
   const [newAnimeRating, setNewAnimeRating] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<AniListMedia[]>([]);
+  const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [selectedSearchResult, setSelectedSearchResult] = useState<AniListMedia | null>(null);
+  const [selectedSearchResult, setSelectedSearchResult] = useState<any | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -1817,7 +1660,7 @@ export default function Home() {
   const [favoriteAnimeIds, setFavoriteAnimeIds] = useState<number[]>([]);
   const [activeTab, setActiveTab] = useState<'home' | 'discover' | 'collection' | 'profile'>('home');
   const [homeSubTab, setHomeSubTab] = useState<'seasons' | 'series'>('seasons');
-  const [discoverSubTab, setDiscoverSubTab] = useState<'trends' | 'users'>('trends');
+  const [discoverSubTab, setDiscoverSubTab] = useState<'trends'>('trends');
   const [collectionSubTab, setCollectionSubTab] = useState<'achievements' | 'characters' | 'quotes' | 'lists' | 'music' | 'voiceActors'>('achievements');
   const [expandedSeasons, setExpandedSeasons] = useState<Set<string>>(new Set());
   const [evangelistLists, setEvangelistLists] = useState<EvangelistList[]>([]);
@@ -1849,11 +1692,6 @@ export default function Home() {
   const [quoteFilterType, setQuoteFilterType] = useState<'all' | 'anime' | 'character'>('all');
   const [selectedAnimeForFilter, setSelectedAnimeForFilter] = useState<number | null>(null);
   const [listSortType, setListSortType] = useState<'date' | 'title' | 'count'>('date');
-  const [reviewStats, setReviewStats] = useState<{
-    reviewCount: number;
-    totalLikes: number;
-    totalHelpful: number;
-  }>({ reviewCount: 0, totalLikes: 0, totalHelpful: 0 });
   
   // SNS機能の状態管理
   const [userSearchQuery, setUserSearchQuery] = useState('');
@@ -1871,28 +1709,8 @@ export default function Home() {
   const [myProfile, setMyProfile] = useState<UserProfile | null>(null);
   const [isProfilePublic, setIsProfilePublic] = useState(false);
   const [userBio, setUserBio] = useState('');
+  const [userHandle, setUserHandle] = useState<string>('');
   
-  // 自分のプロフィールを読み込む
-  useEffect(() => {
-    if (user) {
-      const loadMyProfile = async () => {
-        try {
-          const profile = await getMyProfile();
-          setMyProfile(profile);
-          if (profile) {
-            setIsProfilePublic(profile.is_public);
-            setUserBio(profile.bio || '');
-          }
-        } catch (error) {
-          console.error('Failed to load my profile:', error);
-        }
-      };
-      loadMyProfile();
-    } else {
-      setMyProfile(null);
-    }
-  }, [user]);
-
   // フォロー/フォロワー一覧モーダルを開く際にデータを読み込む
   useEffect(() => {
     if (showFollowListModal && user) {
@@ -1925,7 +1743,7 @@ export default function Home() {
   const [addModalMode, setAddModalMode] = useState<'search' | 'season'>('search');
   const [selectedSeason, setSelectedSeason] = useState<'SPRING' | 'SUMMER' | 'FALL' | 'WINTER' | null>(null);
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
-  const [seasonSearchResults, setSeasonSearchResults] = useState<AniListMedia[]>([]);
+  const [seasonSearchResults, setSeasonSearchResults] = useState<any[]>([]);
   const [selectedSeasonAnimeIds, setSelectedSeasonAnimeIds] = useState<Set<number>>(new Set());
   const [isSeasonSearching, setIsSeasonSearching] = useState(false);
   const [seasonSearchPage, setSeasonSearchPage] = useState(1);
@@ -1993,7 +1811,7 @@ export default function Home() {
         try {
           const parsedLists = JSON.parse(savedLists);
           // Date型に変換
-          const listsWithDates = parsedLists.map((list: Omit<EvangelistList, 'createdAt'> & { createdAt: string | Date }) => ({
+          const listsWithDates = parsedLists.map((list: any) => ({
             ...list,
             createdAt: new Date(list.createdAt),
           }));
@@ -2046,37 +1864,6 @@ export default function Home() {
       localStorage.setItem('darkMode', isDarkMode.toString());
     }
   }, [isDarkMode]);
-
-  // 感想統計を取得
-  useEffect(() => {
-    const loadReviewStats = async () => {
-      if (!user || !supabase) {
-        setReviewStats({ reviewCount: 0, totalLikes: 0, totalHelpful: 0 });
-        return;
-      }
-      
-      try {
-        // 自分の感想をすべて取得
-        const { data: reviews, error } = await supabase
-          .from('reviews')
-          .select('id, likes, helpful_count')
-          .eq('user_id', user.id);
-        
-        if (error) throw error;
-        
-        const reviewCount = reviews?.length || 0;
-        const totalLikes = reviews?.reduce((sum: number, r: { likes?: number }) => sum + (r.likes || 0), 0) || 0;
-        const totalHelpful = reviews?.reduce((sum: number, r: { helpful_count?: number }) => sum + (r.helpful_count || 0), 0) || 0;
-        
-        setReviewStats({ reviewCount, totalLikes, totalHelpful });
-      } catch (error) {
-        console.error('Failed to load review stats:', error);
-        setReviewStats({ reviewCount: 0, totalLikes: 0, totalHelpful: 0 });
-      }
-    };
-    
-    loadReviewStats();
-  }, [user, supabase]);
 
   // ユーザー情報をlocalStorageに保存
   useEffect(() => {
@@ -2142,8 +1929,8 @@ export default function Home() {
         setAuthPassword('');
         setAuthMode('login');
       }
-    } catch (error) {
-      setAuthError(error instanceof Error ? error.message : 'エラーが発生しました');
+    } catch (error: any) {
+      setAuthError(error.message || 'エラーが発生しました');
     }
   };
 
@@ -2153,7 +1940,7 @@ export default function Home() {
       if (error) throw error;
       // ログアウト時にseasonsを空にする
       setSeasons([]);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Logout error:', error);
     }
   };
@@ -2207,7 +1994,7 @@ export default function Home() {
       const following = await isFollowing(userId);
       
       setSelectedUserProfile(profile);
-      setSelectedUserAnimes(animes.map(a => supabaseToAnime(a as SupabaseAnimeRow)));
+      setSelectedUserAnimes(animes.map(a => supabaseToAnime(a)));
       setUserFollowStatus(prev => ({ ...prev, [userId]: following }));
       setShowUserProfileModal(true);
     } catch (error) {
@@ -2291,7 +2078,7 @@ export default function Home() {
   };
 
   // 検索結果を選択した時の処理
-  const handleSelectSearchResult = (result: AniListMedia) => {
+  const handleSelectSearchResult = (result: any) => {
     setSelectedSearchResult(result);
     
     const title = result.title?.native || result.title?.romaji || '';
@@ -2304,9 +2091,8 @@ export default function Home() {
     // シリーズ名は後でnewAnimeに設定する際に使用
     
     // 画像URLを設定（largeがあればlarge、なければmediumを使用）
-    const imageUrl = result.coverImage?.large || result.coverImage?.medium;
-    if (imageUrl) {
-      setNewAnimeIcon(imageUrl);
+    if (result.coverImage?.large || result.coverImage?.medium) {
+      setNewAnimeIcon(result.coverImage.large || result.coverImage.medium);
     }
     
     // シーズン名を自動設定
@@ -2339,26 +2125,8 @@ export default function Home() {
     };
   };
 
-  // Supabaseのanimesテーブルの行の型
-  type SupabaseAnimeRow = {
-    id: number;
-    title: string;
-    image: string;
-    rating: number;
-    watched: boolean;
-    rewatch_count?: number;
-    tags?: string[];
-    songs?: {
-      op?: { title: string; artist: string; rating: number; isFavorite: boolean };
-      ed?: { title: string; artist: string; rating: number; isFavorite: boolean };
-    };
-    quotes?: { text: string; character?: string }[];
-    series_name?: string;
-    studios?: string[];
-  };
-
   // データマッピング関数：Supabase形式 → Anime型
-  const supabaseToAnime = (row: SupabaseAnimeRow): Anime => {
+  const supabaseToAnime = (row: any): Anime => {
     return {
       id: row.id,
       title: row.title,
@@ -2430,21 +2198,7 @@ export default function Home() {
         const likedReviewIds = new Set(likesData?.map(l => l.review_id) || []);
         const helpfulReviewIds = new Set(helpfulData?.map(h => h.review_id) || []);
         
-        const reviews: Review[] = reviewsData.map((r: {
-          id: string;
-          user_id: string;
-          user_name: string;
-          user_icon: string;
-          type: string;
-          episode_number?: number;
-          content: string;
-          contains_spoiler: boolean;
-          spoiler_hidden: boolean;
-          likes: number;
-          helpful_count: number;
-          created_at: string;
-          updated_at: string;
-        }) => ({
+        const reviews: Review[] = reviewsData.map((r: any) => ({
           id: r.id,
           animeId: animeId, // 数値IDを保持
           userId: r.user_id,
@@ -2566,6 +2320,31 @@ export default function Home() {
 
     loadAnimes();
   }, [user, isLoading]);
+
+  // ログイン時にプロフィール情報を読み込む
+  useEffect(() => {
+    const loadProfile = async () => {
+      if (user) {
+        try {
+          const profile = await getMyProfile();
+          if (profile) {
+            setMyProfile(profile);
+            setUserName(profile.username || userName);
+            setUserBio(profile.bio || '');
+            setIsProfilePublic(profile.is_public || false);
+            setUserHandle(profile.handle || '');
+          }
+        } catch (error) {
+          console.error('Failed to load profile:', error);
+        }
+      } else {
+        setMyProfile(null);
+        setUserHandle('');
+      }
+    };
+    
+    loadProfile();
+  }, [user]);
 
   // すべてのアニメを取得
   const allAnimes = seasons.flatMap(season => season.animes);
@@ -2855,30 +2634,6 @@ export default function Home() {
         
         {activeTab === 'discover' && (
           <>
-            {/* サブタブ切り替え */}
-            <div className="flex gap-3 mb-6 overflow-x-auto scrollbar-hide pb-2">
-              <button
-                onClick={() => setDiscoverSubTab('trends')}
-                className={`px-6 py-3 rounded-full text-base font-semibold whitespace-nowrap transition-all min-w-[100px] text-center ${
-                  discoverSubTab === 'trends'
-                    ? 'bg-[#ffc2d1] text-white'
-                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                }`}
-              >
-                傾向分析
-              </button>
-              <button
-                onClick={() => setDiscoverSubTab('users')}
-                className={`px-6 py-3 rounded-full text-base font-semibold whitespace-nowrap transition-all min-w-[100px] text-center ${
-                  discoverSubTab === 'users'
-                    ? 'bg-[#ffc2d1] text-white'
-                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                }`}
-              >
-                ユーザー
-              </button>
-            </div>
-            
             {discoverSubTab === 'trends' && (
               <div className="space-y-6">
                 {(() => {
@@ -3147,220 +2902,87 @@ export default function Home() {
                 })()}
               </div>
             )}
-            
-            {discoverSubTab === 'users' && (
-              <div className="space-y-6">
-                {/* ユーザー検索バー */}
-                <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md">
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={userSearchQuery}
-                      onChange={(e) => setUserSearchQuery(e.target.value)}
-                      onKeyPress={(e) => {
-                        if (e.key === 'Enter') {
-                          handleUserSearch();
-                        }
-                      }}
-                      placeholder="ユーザー名で検索..."
-                      className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ffc2d1] dark:bg-gray-700 dark:text-white"
-                    />
-                    <button
-                      onClick={handleUserSearch}
-                      disabled={isSearchingUsers}
-                      className="px-6 py-2 bg-[#ffc2d1] text-white rounded-xl font-medium hover:bg-[#ffb07c] transition-colors disabled:opacity-50"
-                    >
-                      {isSearchingUsers ? '検索中...' : '検索'}
-                    </button>
-                  </div>
-                </div>
-                
-                {/* 検索結果 */}
-                {userSearchQuery.trim() && searchedUsers.length > 0 && (
-                  <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md">
-                    <h2 className="font-bold text-lg mb-3 dark:text-white">検索結果</h2>
-                    <div className="space-y-3">
-                      {searchedUsers.map((user) => (
-                        <UserCard
-                          key={user.id}
-                          user={user}
-                          onUserClick={() => handleViewUserProfile(user.id)}
-                          onFollowClick={() => handleToggleFollow(user.id)}
-                          isFollowing={userFollowStatus[user.id] || false}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )}
-                
-                {/* おすすめユーザー */}
-                <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md">
-                  <h2 className="font-bold text-lg mb-3 dark:text-white">おすすめユーザー</h2>
-                  {recommendedUsers.length > 0 ? (
-                    <div className="space-y-3">
-                      {recommendedUsers.map((user) => (
-                        <UserCard
-                          key={user.id}
-                          user={user}
-                          onUserClick={() => handleViewUserProfile(user.id)}
-                          onFollowClick={() => handleToggleFollow(user.id)}
-                          isFollowing={userFollowStatus[user.id] || false}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-gray-500 dark:text-gray-400 text-center py-4">
-                      公開プロフィールのユーザーがいません
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
 
           </>
         )}
 
         {activeTab === 'collection' && (
-          <div className="bg-gradient-to-b from-pink-50 to-white dark:from-gray-800 dark:to-gray-900 rounded-2xl p-4 md:p-6">
-            {/* コレクション件数計算 */}
-            {(() => {
-              // 実績の解除判定関数
-              const checkAchievement = (achievement: Achievement): boolean => {
-                const watchedCount = allAnimes.filter(a => a.watched).length;
-                const maxRewatchCount = Math.max(...allAnimes.map(a => a.rewatchCount ?? 0), 0);
-                const godTasteCount = allAnimes.filter(a => a.rating === 5).length;
-                
-                switch (achievement.id) {
-                  case 'first':
-                    return watchedCount >= achievement.condition;
-                  case 'ten':
-                  case 'fifty':
-                  case 'hundred':
-                    return watchedCount >= achievement.condition;
-                  case 'rewatch3':
-                  case 'rewatch10':
-                    return maxRewatchCount >= achievement.condition;
-                  case 'godtaste':
-                    return godTasteCount >= achievement.condition;
-                  case 'review1':
-                  case 'review10':
-                  case 'review50':
-                    return reviewStats.reviewCount >= achievement.condition;
-                  case 'liked10':
-                  case 'liked50':
-                    return reviewStats.totalLikes >= achievement.condition;
-                  case 'helpful10':
-                    return reviewStats.totalHelpful >= achievement.condition;
-                  default:
-                    return false;
-                }
-              };
-              
-              const unlockedAchievements = achievements.filter(a => checkAchievement(a)).length;
-              
-              // 名言の件数
-              const allQuotes: Array<{ text: string; character?: string }> = [];
-              allAnimes.forEach((anime) => {
-                anime.quotes?.forEach((quote) => {
-                  allQuotes.push(quote);
-                });
-              });
-              const quoteCount = allQuotes.length;
-              
-              // 主題歌の件数
-              let songCount = 0;
-              allAnimes.forEach((anime) => {
-                if (anime.songs?.op) songCount++;
-                if (anime.songs?.ed) songCount++;
-              });
-              
-              const collections = [
-                { id: 'achievements', name: '実績', icon: '🌱', count: `${unlockedAchievements}/${achievements.length}`, type: 'progress' as const },
-                { id: 'characters', name: '推しキャラ', icon: '⭐', count: favoriteCharacters.length, type: 'collection' as const },
-                { id: 'quotes', name: '名言', icon: '💬', count: quoteCount, type: 'collection' as const },
-                { id: 'lists', name: '布教リスト', icon: '📋', count: evangelistLists.length, type: 'collection' as const },
-                { id: 'music', name: '主題歌', icon: '🎵', count: songCount, type: 'collection' as const },
-                { id: 'voiceActors', name: '声優', icon: '🎤', count: voiceActors.length, type: 'collection' as const },
-              ];
-              
-              return (
-                <>
-                  {/* コレクション選択エリア（3列×2行グリッド） */}
-                  <div className="grid grid-cols-3 gap-2 mb-6">
-                    {collections.map((collection) => (
-                      <button
-                        key={collection.id}
-                        onClick={() => setCollectionSubTab(collection.id as typeof collectionSubTab)}
-                        className={`flex flex-col items-center justify-center px-3 py-2.5 rounded-full transition-all duration-200 ${
-                          collectionSubTab === collection.id
-                            ? 'bg-pink-500 text-white shadow-md'
-                            : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-2 border-gray-200 dark:border-gray-700 hover:border-pink-500 dark:hover:border-pink-500'
-                        }`}
-                      >
-                        <span className="text-xl mb-1">{collection.icon}</span>
-                        <span className="text-xs font-medium mb-0.5">{collection.name}</span>
-                        <span className={`text-xs font-bold ${collectionSubTab === collection.id ? 'text-white' : 'text-gray-600 dark:text-gray-400'}`}>
-                          {typeof collection.count === 'number' ? `${collection.count}件` : collection.count}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                  
-                  {/* コンテンツ表示エリア */}
-                  <div className="mt-6">
-                    {collectionSubTab === 'achievements' && (
-                      <>
-                        {/* 実績の場合の特別表示 */}
-                        {(() => {
-                          const unlockedAchievements = achievements.filter(a => checkAchievement(a)).length;
-                          const progressPercentage = (unlockedAchievements / achievements.length) * 100;
-                          
-                          return (
-                            <>
-                              {/* 進捗テキスト */}
-                              <div className="text-center mb-4">
-                                <p className="text-2xl font-bold text-gray-800 dark:text-white">
-                                  {unlockedAchievements}/{achievements.length} 解除済み
-                                </p>
-                              </div>
-                              
-                              {/* プログレスバー */}
-                              <div className="w-full bg-gray-300 dark:bg-gray-700 rounded-full h-3 mb-6">
-                                <div
-                                  className="bg-pink-500 h-3 rounded-full transition-all duration-300"
-                                  style={{ width: `${progressPercentage}%` }}
-                                />
-                              </div>
-                              
-                              {/* 実績アイテムリスト */}
-                              <div className="space-y-3">
-                                {achievements.map((achievement) => {
-                                  const isUnlocked = checkAchievement(achievement);
-                                  return (
-                                    <div
-                                      key={achievement.id}
-                                      className="flex items-center gap-4 p-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 hover:shadow-md transition-shadow"
-                                    >
-                                      <span className="text-3xl">{achievement.icon}</span>
-                                      <div className="flex-1">
-                                        <h3 className="font-bold text-gray-800 dark:text-white">{achievement.name}</h3>
-                                        <p className="text-xs text-gray-600 dark:text-gray-400">{achievement.desc}</p>
-                                      </div>
-                                      <span className={`text-sm font-bold ${isUnlocked ? 'text-green-600 dark:text-green-400' : 'text-gray-400'}`}>
-                                        {isUnlocked ? '達成済み ✓' : '未達成'}
-                                      </span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </>
-                          );
-                        })()}
-                      </>
-                    )}
-                    
-                            {collectionSubTab === 'characters' && (
-                      <div className="space-y-4">
+          <>
+            {/* サブタブ */}
+            <div className="flex gap-3 md:gap-4 mb-6 overflow-x-auto pb-2 scrollbar-hide">
+              <button
+                onClick={() => setCollectionSubTab('achievements')}
+                className={`px-6 md:px-8 py-3 rounded-full text-base md:text-lg font-semibold whitespace-nowrap transition-all min-w-[100px] md:min-w-[120px] text-center ${
+                  collectionSubTab === 'achievements'
+                    ? 'bg-[#ffc2d1] text-white shadow-md'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                }`}
+              >
+                実績
+              </button>
+              <button
+                onClick={() => setCollectionSubTab('characters')}
+                className={`px-6 md:px-8 py-3 rounded-full text-base md:text-lg font-semibold whitespace-nowrap transition-all min-w-[100px] md:min-w-[120px] text-center ${
+                  collectionSubTab === 'characters'
+                    ? 'bg-[#ffc2d1] text-white shadow-md'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                }`}
+              >
+                推しキャラ
+              </button>
+              <button
+                onClick={() => setCollectionSubTab('quotes')}
+                className={`px-6 md:px-8 py-3 rounded-full text-base md:text-lg font-semibold whitespace-nowrap transition-all min-w-[100px] md:min-w-[120px] text-center ${
+                  collectionSubTab === 'quotes'
+                    ? 'bg-[#ffc2d1] text-white shadow-md'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                }`}
+              >
+                名言
+              </button>
+              <button
+                onClick={() => setCollectionSubTab('lists')}
+                className={`px-6 md:px-8 py-3 rounded-full text-base md:text-lg font-semibold whitespace-nowrap transition-all min-w-[100px] md:min-w-[120px] text-center ${
+                  collectionSubTab === 'lists'
+                    ? 'bg-[#ffc2d1] text-white shadow-md'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                }`}
+              >
+                布教リスト
+              </button>
+              <button
+                onClick={() => setCollectionSubTab('music')}
+                className={`px-6 md:px-8 py-3 rounded-full text-base md:text-lg font-semibold whitespace-nowrap transition-all min-w-[100px] md:min-w-[120px] text-center ${
+                  collectionSubTab === 'music'
+                    ? 'bg-[#ffc2d1] text-white shadow-md'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                }`}
+              >
+                主題歌
+              </button>
+              <button
+                onClick={() => setCollectionSubTab('voiceActors')}
+                className={`px-6 md:px-8 py-3 rounded-full text-base md:text-lg font-semibold whitespace-nowrap transition-all min-w-[100px] md:min-w-[120px] text-center ${
+                  collectionSubTab === 'voiceActors'
+                    ? 'bg-[#ffc2d1] text-white shadow-md'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                }`}
+              >
+                声優
+              </button>
+            </div>
+
+            {collectionSubTab === 'achievements' && (
+              <AchievementsTab 
+                allAnimes={allAnimes}
+                achievements={achievements}
+                user={user}
+                supabase={supabase}
+              />
+            )}
+
+            {collectionSubTab === 'characters' && (
+              <div className="space-y-4">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-xl font-bold dark:text-white">推しキャラ</h2>
                   <button
@@ -3423,7 +3045,7 @@ export default function Home() {
                       {filteredCharacters.map((character) => (
                         <div
                           key={character.id}
-                          className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 hover:shadow-md transition-shadow relative group"
+                          className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md relative group"
                         >
                           {/* 編集・削除ボタン */}
                           <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -3488,11 +3110,11 @@ export default function Home() {
                     </p>
                   );
                 })()}
-                      </div>
-                    )}
+              </div>
+            )}
 
-                    {collectionSubTab === 'quotes' && (
-                      <div className="space-y-4">
+            {collectionSubTab === 'quotes' && (
+              <div className="space-y-4">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-xl font-bold dark:text-white">名言コレクション</h2>
                   <button
@@ -3637,7 +3259,7 @@ export default function Home() {
                             return quoteMap.map(({ quote, animeId, quoteIndex }, index) => (
                               <div
                                 key={`${animeId}-${quoteIndex}`}
-                                className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 hover:shadow-md transition-shadow relative group flex items-start gap-3"
+                                className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md border-l-4 border-[#ffc2d1]-500 relative group"
                               >
                                 {/* 編集・削除ボタン */}
                                 <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -3696,13 +3318,11 @@ export default function Home() {
                                     🗑️
                                   </button>
                                 </div>
-                                <span className="text-2xl">💬</span>
-                                <div className="flex-1">
-                                  <p className="text-sm dark:text-white mb-1 pr-12">「{quote.text}」</p>
-                                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                                    {quote.character ? `${quote.character} / ` : ''}{quote.animeTitle}
-                                  </p>
-                                </div>
+                                
+                                <p className="text-sm dark:text-white mb-2 pr-12">「{quote.text}」</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400">
+                                  {quote.character ? `${quote.character} / ` : ''}{quote.animeTitle}
+                                </p>
                               </div>
                             ));
                           })()}
@@ -3715,11 +3335,11 @@ export default function Home() {
                     </>
                   );
                 })()}
-                      </div>
-                    )}
+              </div>
+            )}
 
-                    {collectionSubTab === 'lists' && (
-                      <div className="space-y-4">
+            {collectionSubTab === 'lists' && (
+              <div className="space-y-4">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-xl font-bold dark:text-white">布教リスト</h2>
                   <button
@@ -3792,14 +3412,11 @@ export default function Home() {
                         <div
                           key={list.id}
                           onClick={() => setSelectedList(list)}
-                          className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 hover:shadow-md transition-shadow cursor-pointer flex items-center gap-3"
+                          className="bg-linear-to-br from-[#ffc2d1] to-[#ffb07c] rounded-2xl p-4 shadow-md cursor-pointer hover:scale-105 transition-transform"
                         >
-                          <span className="text-2xl">📋</span>
-                          <div className="flex-1">
-                            <h3 className="font-bold text-gray-800 dark:text-white mb-1">{list.title}</h3>
-                            <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">{list.description}</p>
-                            <p className="text-xs text-gray-500 dark:text-gray-500">{list.animeIds.length}作品</p>
-                          </div>
+                          <h3 className="font-bold text-white mb-1">{list.title}</h3>
+                          <p className="text-white/80 text-sm mb-2">{list.description}</p>
+                          <p className="text-white/60 text-xs">{list.animeIds.length}作品</p>
                         </div>
                       ));
                     })()}
@@ -3807,10 +3424,10 @@ export default function Home() {
                 ) : (
                   <p className="text-gray-500 dark:text-gray-400 text-center py-8">布教リストが作成されていません</p>
                 )}
-                      </div>
-                    )}
+              </div>
+            )}
 
-                    {collectionSubTab === 'music' && (
+            {collectionSubTab === 'music' && (
               <MusicTab 
                 allAnimes={allAnimes} 
                 seasons={seasons} 
@@ -3822,10 +3439,10 @@ export default function Home() {
                 setShowSongModal={setShowSongModal}
                 user={user}
                 supabase={supabase}
-                      />
-                    )}
+              />
+            )}
 
-                    {collectionSubTab === 'voiceActors' && (
+            {collectionSubTab === 'voiceActors' && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-xl font-bold dark:text-white">声優リスト</h2>
@@ -3873,7 +3490,7 @@ export default function Home() {
                         return (
                           <div
                             key={voiceActor.id}
-                            className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 hover:shadow-md transition-shadow relative group"
+                            className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md hover:shadow-lg transition-shadow relative group"
                           >
                             {/* 編集・削除ボタン（ホバー時表示） */}
                             <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
@@ -3943,13 +3560,9 @@ export default function Home() {
                 ) : (
                   <p className="text-gray-500 dark:text-gray-400 text-center py-8">声優が登録されていません</p>
                 )}
-                      </div>
-                    )}
-                  </div>
-                </>
-              );
-            })()}
-          </div>
+              </div>
+            )}
+          </>
         )}
         
         {activeTab === 'profile' && (
@@ -3958,6 +3571,7 @@ export default function Home() {
             seasons={seasons}
             userName={userName}
             userIcon={userIcon}
+            userHandle={userHandle}
             averageRating={averageRating}
             isDarkMode={isDarkMode}
             setIsDarkMode={setIsDarkMode}
@@ -3980,7 +3594,15 @@ export default function Home() {
             userBio={userBio}
             setUserBio={setUserBio}
             upsertUserProfile={upsertUserProfile}
-            myProfile={myProfile}
+            userSearchQuery={userSearchQuery}
+            setUserSearchQuery={setUserSearchQuery}
+            searchedUsers={searchedUsers}
+            recommendedUsers={recommendedUsers}
+            isSearchingUsers={isSearchingUsers}
+            handleUserSearch={handleUserSearch}
+            handleViewUserProfile={handleViewUserProfile}
+            handleToggleFollow={handleToggleFollow}
+            userFollowStatus={userFollowStatus}
           />
         )}
       </main>
@@ -4178,7 +3800,7 @@ export default function Home() {
                               rewatchCount: 0,
                               tags: result.genres?.map((g: string) => translateGenre(g)).slice(0, 3) || [],
                               seriesName,
-                              studios: result.studios?.nodes?.map((s: { name: string }) => s.name) || [],
+                              studios: result.studios?.nodes?.map((s: any) => s.name) || [],
                             };
                           });
                           
@@ -4232,12 +3854,11 @@ export default function Home() {
                               
                               if (error) {
                                 console.error('❌ Supabase Error:', error);
-                                const errorObj = error as { message?: string; details?: string; hint?: string; code?: string };
                                 console.error('📋 Error Properties:', {
-                                  message: errorObj.message,
-                                  details: errorObj.details,
-                                  hint: errorObj.hint,
-                                  code: errorObj.code,
+                                  message: error.message,
+                                  details: error.details,
+                                  hint: error.hint,
+                                  code: error.code,
                                 });
                                 console.groupEnd();
                                 throw error;
@@ -4245,18 +3866,17 @@ export default function Home() {
                               
                               console.log('✅ Success:', data);
                               console.groupEnd();
-                            } catch (error) {
+                            } catch (error: any) {
                               console.group('❌ Error Catch Block');
                               console.error('Error Type:', typeof error);
                               console.error('Error Value:', error);
                               
                               // エラーオブジェクトのすべてのプロパティを確認
                               if (error) {
-                                const errorProps: Record<string, unknown> = {};
-                                const errorObj = error as Record<string, unknown>;
-                                for (const key in errorObj) {
+                                const errorProps: Record<string, any> = {};
+                                for (const key in error) {
                                   try {
-                                    errorProps[key] = errorObj[key];
+                                    errorProps[key] = error[key];
                                   } catch (e) {
                                     errorProps[key] = '[読み取り不可]';
                                   }
@@ -4273,8 +3893,7 @@ export default function Home() {
                               
                               console.groupEnd();
                               
-                              const errorObj = error as { message?: string; details?: string; hint?: string } | null;
-                              const errorMessage = errorObj?.message || errorObj?.details || errorObj?.hint || String(error) || '不明なエラー';
+                              const errorMessage = error?.message || error?.details || error?.hint || String(error) || '不明なエラー';
                               alert(`アニメの保存に失敗しました\n\nエラー: ${errorMessage}\n\n詳細はコンソール（F12）を確認してください。`);
                             }
                           }
@@ -4451,7 +4070,7 @@ export default function Home() {
                     // 制作会社を取得
                     const studios: string[] = [];
                     if (selectedSearchResult?.studios?.nodes && Array.isArray(selectedSearchResult.studios.nodes)) {
-                      studios.push(...selectedSearchResult.studios.nodes.map((s: { name: string }) => s.name));
+                      studios.push(...selectedSearchResult.studios.nodes.map((s: any) => s.name));
                     }
                     
                     const newAnime: Anime = {
@@ -4527,12 +4146,11 @@ export default function Home() {
                         if (error) {
                           console.error('Supabase insert error:', error);
                           console.error('Error object:', JSON.stringify(error, null, 2));
-                          const errorObj = error as { message?: string; details?: string; hint?: string; code?: string };
-                          console.error('Error properties:', Object.keys(errorObj));
-                          console.error('Error message:', errorObj.message);
-                          console.error('Error details:', errorObj.details);
-                          console.error('Error hint:', errorObj.hint);
-                          console.error('Error code:', errorObj.code);
+                          console.error('Error properties:', Object.keys(error));
+                          console.error('Error message:', error.message);
+                          console.error('Error details:', error.details);
+                          console.error('Error hint:', error.hint);
+                          console.error('Error code:', error.code);
                           throw error;
                         }
                         
@@ -4547,17 +4165,16 @@ export default function Home() {
                             updatedSeasons[seasonIndex].animes[animeIndex] = savedAnime;
                           }
                         }
-                      } catch (error) {
+                      } catch (error: any) {
                         console.error('Failed to save anime to Supabase');
                         console.error('Error type:', typeof error);
-                        const errorObj = error as { message?: string; details?: string; hint?: string; code?: string; constructor?: { name?: string } } | null;
-                        console.error('Error constructor:', errorObj?.constructor?.name);
+                        console.error('Error constructor:', error?.constructor?.name);
                         console.error('Error as string:', String(error));
-                        if (errorObj) {
-                          console.error('Error message:', errorObj.message);
-                          console.error('Error details:', errorObj.details);
-                          console.error('Error hint:', errorObj.hint);
-                          console.error('Error code:', errorObj.code);
+                        if (error) {
+                          console.error('Error message:', error.message);
+                          console.error('Error details:', error.details);
+                          console.error('Error hint:', error.hint);
+                          console.error('Error code:', error.code);
                         }
                         // エラーが発生してもローカル状態は更新する
                       }
@@ -4750,14 +4367,23 @@ export default function Home() {
       {/* 設定モーダル */}
       {showSettings && (
         <div 
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          className="fixed inset-0 bg-black/50 z-50 flex"
           onClick={() => setShowSettings(false)}
         >
           <div 
-            className="bg-white dark:bg-gray-800 rounded-2xl max-w-sm w-full p-6"
+            className="bg-white dark:bg-gray-800 w-full max-w-md ml-auto h-full shadow-2xl overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="text-xl font-bold mb-4 dark:text-white">プロフィール設定</h2>
+            <div className="p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold dark:text-white">設定</h2>
+              <button
+                onClick={() => setShowSettings(false)}
+                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
+              >
+                <span className="text-2xl">✕</span>
+              </button>
+            </div>
             
             {/* ユーザー名入力 */}
             <div className="mb-4">
@@ -4795,12 +4421,43 @@ export default function Home() {
               </div>
             </div>
 
-            {/* オタクタイプ選択 */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                オタクタイプ（DNAカードに表示されます）
-              </label>
-              <div className="space-y-2 max-h-60 overflow-y-auto">
+            {/* DNAカード編集セクション */}
+            <div className="mb-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-bold text-gray-700 dark:text-gray-300 mb-4">DNAカード編集</h3>
+              
+              {/* ハンドル入力（@で始まるID） */}
+              {user && (
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    @ハンドル（DNAカードに表示されます）
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-500 dark:text-gray-400">@</span>
+                    <input
+                      type="text"
+                      value={userHandle}
+                      onChange={(e) => {
+                        // 英数字、アンダースコア、ハイフンのみ許可、小文字に変換
+                        const value = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '');
+                        setUserHandle(value);
+                      }}
+                      className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ffc2d1] dark:bg-gray-700 dark:text-white"
+                      placeholder="handle"
+                      maxLength={30}
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    英数字、アンダースコア(_)のみ使用可能。他のユーザーから検索される際に使用されます。
+                  </p>
+                </div>
+              )}
+
+              {/* オタクタイプ選択 */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  オタクタイプ（DNAカードに表示されます）
+                </label>
+                <div className="space-y-2 max-h-60 overflow-y-auto">
                 <button
                   onClick={() => setUserOtakuType('')}
                   className={`w-full text-left px-4 py-3 rounded-xl border-2 transition-all ${
@@ -4836,6 +4493,50 @@ export default function Home() {
                     </div>
                   </button>
                 ))}
+                </div>
+              </div>
+
+              {/* 最推し作品選択 */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  最推し作品（DNAカードに表示されます、最大3作品）
+                </label>
+                <button
+                  onClick={() => {
+                    setShowSettings(false);
+                    setShowFavoriteAnimeModal(true);
+                  }}
+                  className="w-full px-4 py-3 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl text-gray-600 dark:text-gray-400 hover:border-[#ffc2d1] hover:text-[#ffc2d1] transition-colors"
+                >
+                  {favoriteAnimeIds.length > 0
+                    ? `${favoriteAnimeIds.length}作品が設定されています`
+                    : '最推し作品を選択'}
+                </button>
+                {favoriteAnimeIds.length > 0 && (
+                  <div className="mt-2 flex gap-2 flex-wrap">
+                    {favoriteAnimeIds.slice(0, 3).map((id) => {
+                      const anime = allAnimes.find(a => a.id === id);
+                      if (!anime) return null;
+                      return (
+                        <div
+                          key={id}
+                          className="flex items-center gap-1 bg-[#ffc2d1]/20 dark:bg-[#ffc2d1]/20 px-2 py-1 rounded-lg text-xs"
+                        >
+                          <span className="dark:text-white">{anime.title}</span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setFavoriteAnimeIds(favoriteAnimeIds.filter(fid => fid !== id));
+                            }}
+                            className="text-red-500 hover:text-red-700"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -4879,51 +4580,27 @@ export default function Home() {
               </div>
             )}
 
-            {/* 最推し作品選択 */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                最推し作品（DNAカードに表示されます、最大3作品）
-              </label>
-              <button
-                onClick={() => {
-                  setShowSettings(false);
-                  setShowFavoriteAnimeModal(true);
-                }}
-                className="w-full px-4 py-3 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl text-gray-600 dark:text-gray-400 hover:border-[#ffc2d1] hover:text-[#ffc2d1] transition-colors"
-              >
-                {favoriteAnimeIds.length > 0
-                  ? `${favoriteAnimeIds.length}作品が設定されています`
-                  : '最推し作品を選択'}
-              </button>
-              {favoriteAnimeIds.length > 0 && (
-                <div className="mt-2 flex gap-2 flex-wrap">
-                  {favoriteAnimeIds.slice(0, 3).map((id) => {
-                    const anime = allAnimes.find(a => a.id === id);
-                    if (!anime) return null;
-                    return (
-                      <div
-                        key={id}
-                        className="flex items-center gap-1 bg-[#ffc2d1]/20 dark:bg-[#ffc2d1]/20 px-2 py-1 rounded-lg text-xs"
-                      >
-                        <span className="dark:text-white">{anime.title}</span>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setFavoriteAnimeIds(favoriteAnimeIds.filter(fid => fid !== id));
-                          }}
-                          className="text-red-500 hover:text-red-700"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
             <button 
-              onClick={() => {
+              onClick={async () => {
+                // プロフィール情報を保存
+                if (user) {
+                  await upsertUserProfile({
+                    username: userName,
+                    handle: userHandle || null,
+                    bio: userBio,
+                    is_public: isProfilePublic,
+                  });
+                  // プロフィールを再読み込み
+                  const profile = await getMyProfile();
+                  if (profile) {
+                    setMyProfile(profile);
+                    setUserHandle(profile.handle || '');
+                  }
+                }
+                
+                // localStorageに保存
+                localStorage.setItem('userName', userName);
+                localStorage.setItem('userIcon', userIcon);
                 if (userOtakuType) {
                   localStorage.setItem('userOtakuType', userOtakuType);
                 } else {
@@ -4936,6 +4613,7 @@ export default function Home() {
             >
               保存
             </button>
+            </div>
           </div>
         </div>
       )}
@@ -6142,14 +5820,13 @@ export default function Home() {
                       } else {
                         console.log('Skipping Supabase delete for local ID:', selectedAnime.id);
                       }
-                    } catch (error) {
+                    } catch (error: any) {
                       console.error('Failed to delete anime from Supabase:', error);
-                      const errorObj = error as { message?: string; details?: string; hint?: string; code?: string } | null;
                       console.error('Error details:', {
-                        message: error instanceof Error ? error.message : String(error),
-                        details: errorObj?.details,
-                        hint: errorObj?.hint,
-                        code: errorObj?.code,
+                        message: error?.message,
+                        details: error?.details,
+                        hint: error?.hint,
+                        code: error?.code,
                         animeId: selectedAnime.id,
                         userId: user.id,
                       });
@@ -6241,7 +5918,7 @@ export default function Home() {
                   </div>
                 ) : (() => {
                   // フィルタリング
-                  const filteredReviews = animeReviews.filter(review => {
+                  let filteredReviews = animeReviews.filter(review => {
                     if (reviewFilter === 'overall' && review.type !== 'overall') return false;
                     if (reviewFilter === 'episode' && review.type !== 'episode') return false;
                     if (userSpoilerHidden && review.containsSpoiler) return false;
