@@ -1671,7 +1671,6 @@ export default function Home() {
   const prevSeasonsRef = useRef<string>('');
   const [selectedAnime, setSelectedAnime] = useState<Anime | null>(null);
   const [count, setCount] = useState(0);
-  const [showSettings, setShowSettings] = useState(false);
   const [showFavoriteAnimeModal, setShowFavoriteAnimeModal] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showDNAModal, setShowDNAModal] = useState(false);
@@ -2406,13 +2405,10 @@ export default function Home() {
               {isDarkMode ? '☀️' : '🌙'}
             </button>
             {user ? (
-              <button
-                onClick={() => setShowSettings(true)}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-              >
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 dark:bg-gray-700">
                 <span className="text-2xl">{userIcon}</span>
                 <span className="font-bold text-sm dark:text-white">{userName}</span>
-              </button>
+              </div>
             ) : (
               <button
                 onClick={() => setShowAuthModal(true)}
@@ -3677,7 +3673,6 @@ export default function Home() {
             averageRating={averageRating}
             isDarkMode={isDarkMode}
             setIsDarkMode={setIsDarkMode}
-            setShowSettings={setShowSettings}
             handleLogout={handleLogout}
             userOtakuType={userOtakuType}
             favoriteAnimeIds={favoriteAnimeIds}
