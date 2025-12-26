@@ -285,36 +285,17 @@ export default function Home() {
     loadReviews,
   } = useAnimeReviews(user);
 
-
-
-
-
   // ログアウト処理
   const handleLogout = async () => {
-    const success = await logout();
-    if (success) {
-      // ログアウト時にseasonsを空にする（useAnimeDataフック内で管理されているため、ここでは不要）
-    }
+    await logout();
   };
-
-
-
-
-
-
-
 
   // アニメが選択されたときに感想を読み込む
   useEffect(() => {
     if (selectedAnime && user) {
       loadReviews(selectedAnime.id);
-    } else if (!selectedAnime || !user) {
-      // アニメが選択されていない、またはログインしていない場合は空にする
-      // loadReviewsは既に空にする処理を含んでいるので、ここでは何もしない
     }
   }, [selectedAnime?.id, user, loadReviews]);
-
-
   return (
     <div className="min-h-screen bg-[#fef6f0] dark:bg-gray-900">
       <Navigation
