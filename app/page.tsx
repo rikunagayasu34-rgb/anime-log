@@ -3582,7 +3582,7 @@ export default function Home() {
                             return quoteMap.map(({ quote, animeId, quoteIndex }, index) => (
                               <div
                                 key={`${animeId}-${quoteIndex}`}
-                                className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md border-l-4 border-[#ffc2d1]-500 relative group"
+                                className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 hover:shadow-md transition-shadow relative group flex items-start gap-3"
                               >
                                 {/* 編集・削除ボタン */}
                                 <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
