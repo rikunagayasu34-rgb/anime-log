@@ -31,7 +31,7 @@ export function Navigation({
       <header className="bg-white dark:bg-gray-800 border-b dark:border-gray-700 sticky top-0 z-10 lg:ml-[200px]">
         <div className="max-w-md md:max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <h1 className="text-xl font-black bg-linear-to-r from-[#ffc2d1] to-[#ffb07c] bg-clip-text text-transparent">
-            俺のアニメログ
+            アニメログ
           </h1>
           <div className="flex items-center gap-2">
             <button
