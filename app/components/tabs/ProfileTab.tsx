@@ -86,7 +86,7 @@ export function ProfileTab({
 }) {
   const [isDNACardVisible, setIsDNACardVisible] = useState(true);
   const [showShareModal, setShowShareModal] = useState(false);
-  const [isHandleVisible, setIsHandleVisible] = useState(true);
+  const [isHandleVisible, setIsHandleVisible] = useState(false);
   const [editingOtakuType, setEditingOtakuType] = useState(false);
   const [editingFavoriteAnime, setEditingFavoriteAnime] = useState(false);
   const [customOtakuType, setCustomOtakuType] = useState('');
@@ -164,8 +164,9 @@ export function ProfileTab({
     <div className="space-y-6">
       {/* DNAカード */}
       {isDNACardVisible && (() => {
-        const allAnimes = seasons.flatMap(s => s.animes);
-        const count = allAnimes.filter(a => a.watched).length;
+        const allAnimesFromSeasons = seasons.flatMap(s => s.animes);
+        // 作品数はallAnimesから計算（watchedがtrueのもの）
+        const count = allAnimes.filter(a => a.watched === true).length;
         const totalRewatchCount = allAnimes.reduce((sum, a) => sum + (a.rewatchCount ?? 0), 0);
         const ratings = allAnimes.filter(a => a.rating > 0).map(a => a.rating);
         const averageRating = ratings.length > 0 ? ratings.reduce((sum, r) => sum + r, 0) / ratings.length : 0;
@@ -221,7 +222,7 @@ export function ProfileTab({
         }
         
         // お気に入り曲
-        const favoriteSongs = allAnimes
+        const favoriteSongs = allAnimesFromSeasons
           .flatMap(anime => [
             anime.songs?.op?.isFavorite ? anime.songs.op : null,
             anime.songs?.ed?.isFavorite ? anime.songs.ed : null,
@@ -246,15 +247,6 @@ export function ProfileTab({
                   <div className="dna-logo-icon"></div>
                   <h2 className="text-white text-xl font-black">ANIME DNA</h2>
                 </div>
-                <div 
-                  className="px-4 py-2 flex items-center justify-center backdrop-blur-md border border-white/50 rounded-xl"
-                  style={{
-                    background: 'rgba(255, 255, 255, 0.25)',
-                    boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.3)'
-                  }}
-                >
-                  <span className="text-white text-sm font-semibold">{new Date().getFullYear()}</span>
-                </div>
               </div>
               
               {/* メインコンテンツ */}
@@ -266,7 +258,7 @@ export function ProfileTab({
                     <div className="profile-left relative">
                       {/* アバター */}
                       <div 
-                        className="w-[72px] h-[72px] md:w-[76px] md:h-[76px] lg:w-[100px] lg:h-[100px] rounded-[18px] md:rounded-xl lg:rounded-2xl flex items-center justify-center overflow-hidden shadow-lg border-2 border-white/40"
+                        className="w-[135px] h-[135px] md:w-[150px] md:h-[150px] lg:w-[180px] lg:h-[180px] rounded-[18px] md:rounded-xl lg:rounded-2xl flex items-center justify-center overflow-hidden shadow-lg border-2 border-white/40"
                         style={{
                           background: 'linear-gradient(135deg, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.15) 100%)',
                           boxShadow: '0 4px 15px rgba(0,0,0,0.1), inset 0 2px 0 rgba(255,255,255,0.3)'
@@ -424,11 +416,7 @@ export function ProfileTab({
                         <p className="handle text-sm md:text-base text-white/70">
                           {!isHandleVisible ? `@${userHandle}` : '@XXXX'}
                         </p>
-                      ) : (
-                        <p className="handle text-sm md:text-base text-white/70">
-                          {!isHandleVisible ? '' : '@XXXX'}
-                        </p>
-                      )}
+                      ) : null}
                     </div>
                   </section>
                   
@@ -489,17 +477,17 @@ export function ProfileTab({
                       </div>
                     </div>
                     {favoriteAnimeIds.length > 0 ? (
-                      <div className="favorite-content flex items-center justify-center gap-4 md:gap-5 lg:gap-6 flex-1">
+                      <div className="favorite-content-grid flex flex-wrap justify-center gap-6 md:gap-8">
                         {favoriteAnimeIds
                           .map(id => allAnimes.find(a => a.id === id))
                           .filter((a): a is Anime => a !== undefined)
-                          .slice(0, 3)
+                          .slice(0, 5)
                           .map((anime) => {
                             const isImageUrl = anime.image && (anime.image.startsWith('http://') || anime.image.startsWith('https://'));
                             return (
                               <div
                                 key={anime.id}
-                                className="favorite-poster w-[60px] h-[84px] md:w-[70px] md:h-[98px] lg:w-[80px] lg:h-[112px] rounded-lg md:rounded-xl flex items-center justify-center overflow-hidden flex-shrink-0 backdrop-blur-md border border-white/30 relative group"
+                                className="favorite-poster w-[90px] h-[126px] md:w-[105px] md:h-[147px] lg:w-[120px] lg:h-[168px] rounded-lg md:rounded-xl flex items-center justify-center overflow-hidden backdrop-blur-md border border-white/30 relative group"
                                 style={{
                                   background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.25) 0%, rgba(118, 75, 162, 0.25) 100%)',
                                 }}
@@ -541,7 +529,7 @@ export function ProfileTab({
                     ) : (
                       <div className="favorite-content flex items-center justify-center flex-1 py-8">
                         <div className="favorite-empty text-center text-white/70 text-sm md:text-base lg:text-lg leading-relaxed">
-                          <div className="favorite-poster w-[60px] h-[84px] md:w-[70px] md:h-[98px] lg:w-[80px] lg:h-[112px] mx-auto mb-4 flex items-center justify-center rounded-lg md:rounded-xl backdrop-blur-md border border-white/30" style={{
+                          <div className="favorite-poster w-[90px] h-[126px] md:w-[105px] md:h-[147px] lg:w-[120px] lg:h-[168px] mx-auto mb-4 flex items-center justify-center rounded-lg md:rounded-xl backdrop-blur-md border border-white/30" style={{
                             background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.25) 0%, rgba(118, 75, 162, 0.25) 100%)',
                           }}>
                             <div className="film-icon w-6 h-5 md:w-7 md:h-5.5 lg:w-7 lg:h-6 border-2 border-white/30 rounded-sm"></div>
@@ -793,6 +781,18 @@ export function ProfileTab({
                                   profileInfo.style.display = 'flex';
                                   profileInfo.style.flexDirection = 'column';
                                   profileInfo.style.justifyContent = 'center';
+                                  
+                                  // プロフィール画像のサイズを保存用に調整（100pxに固定）
+                                  // profile-leftの最初の子要素がアバター要素
+                                  if (profileLeft.firstElementChild) {
+                                    const avatarElement = profileLeft.firstElementChild as HTMLElement;
+                                    avatarElement.style.width = '100px';
+                                    avatarElement.style.height = '100px';
+                                    avatarElement.style.minWidth = '100px';
+                                    avatarElement.style.minHeight = '100px';
+                                    avatarElement.style.maxWidth = '100px';
+                                    avatarElement.style.maxHeight = '100px';
+                                  }
                                 }
                               }
                             }
@@ -834,13 +834,13 @@ export function ProfileTab({
                     alert(`画像の保存に失敗しました。\n\nエラー: ${errorMessage}\n\n詳細はブラウザのコンソール（F12）を確認してください。`);
                   }
                 }}
-                className="flex-1 bg-white dark:bg-gray-800 text-gray-900 dark:text-white py-3 rounded-xl font-bold shadow-md hover:shadow-lg transition-all hover:scale-[1.02] active:scale-[0.98]"
+                className="flex-1 bg-white dark:bg-gray-800 text-gray-900 dark:text-white border-2 border-gray-300 dark:border-gray-600 py-3 rounded-xl font-bold shadow-md hover:border-[#e879d4] hover:shadow-lg transition-all hover:scale-[1.02] active:scale-[0.98]"
               >
                 画像を保存
               </button>
               <button
                 onClick={() => setShowShareModal(true)}
-                className="flex-1 bg-[#e879d4] text-white py-3 rounded-xl font-bold shadow-md hover:shadow-lg hover:bg-[#f09fe3] transition-all hover:scale-[1.02] active:scale-[0.98]"
+                className="flex-1 bg-white dark:bg-gray-800 text-gray-900 dark:text-white border-2 border-gray-300 dark:border-gray-600 py-3 rounded-xl font-bold shadow-md hover:border-[#e879d4] hover:shadow-lg transition-all hover:scale-[1.02] active:scale-[0.98]"
               >
                 シェア
               </button>

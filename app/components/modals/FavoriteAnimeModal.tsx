@@ -37,7 +37,7 @@ export function FavoriteAnimeModal({
         className="bg-white dark:bg-gray-800 rounded-2xl max-w-sm lg:max-w-lg w-full max-h-[90vh] overflow-y-auto p-6"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-xl font-bold mb-4 dark:text-white">最推し作品を選択（最大3作品）</h2>
+        <h2 className="text-xl font-bold mb-4 dark:text-white">最推し作品を選択（最大5作品）</h2>
         <div className="space-y-2 max-h-96 overflow-y-auto">
           {allAnimes.map((anime) => {
             const isSelected = favoriteAnimeIds.includes(anime.id);
@@ -48,10 +48,10 @@ export function FavoriteAnimeModal({
                   if (isSelected) {
                     setFavoriteAnimeIds(favoriteAnimeIds.filter(id => id !== anime.id));
                   } else {
-                    if (favoriteAnimeIds.length < 3) {
+                    if (favoriteAnimeIds.length < 5) {
                       setFavoriteAnimeIds([...favoriteAnimeIds, anime.id]);
                     } else {
-                      alert('最大3作品まで選択できます');
+                      alert('最大5作品まで選択できます');
                     }
                   }
                 }}

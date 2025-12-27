@@ -277,24 +277,68 @@ export async function upsertUserProfile(profile: {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return false;
   
+  // 既存のプロフィールを取得
+  const { data: existingProfile } = await supabase
+    .from('user_profiles')
+    .select('handle')
+    .eq('id', user.id)
+    .single();
+  
   // handleを正規化（@を除去、小文字に変換）
+  // 空文字列の場合はnullに変換（UNIQUE制約のため）
+  let normalizedHandle = null;
+  if (profile.handle && profile.handle.trim() !== '') {
+    normalizedHandle = normalizeHandle(profile.handle);
+    // 正規化後も空文字列になった場合はnullに
+    if (normalizedHandle === '') {
+      normalizedHandle = null;
+    } else {
+      // handleが変更される場合のみ重複チェック（自分自身のハンドルは除外）
+      if (existingProfile?.handle !== normalizedHandle) {
+        const { data: duplicateCheck } = await supabase
+          .from('user_profiles')
+          .select('id, username')
+          .eq('handle', normalizedHandle)
+          .neq('id', user.id)
+          .maybeSingle();
+        
+        if (duplicateCheck) {
+          console.error('Handle already taken:', normalizedHandle, 'by user:', duplicateCheck.id);
+          throw new Error(`ハンドル「@${normalizedHandle}」は既に使用されています`);
+        }
+      }
+    }
+  }
+  
   const normalizedProfile = {
     ...profile,
-    handle: profile.handle ? normalizeHandle(profile.handle) : null,
+    handle: normalizedHandle,
   };
   
-  const { error } = await supabase
+  const { error, data } = await supabase
     .from('user_profiles')
     .upsert({
       id: user.id,
       ...normalizedProfile,
       updated_at: new Date().toISOString(),
+    }, {
+      onConflict: 'id'
     });
   
   if (error) {
     console.error('Failed to upsert user profile:', error);
+    console.error('Error details:', {
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      code: error.code,
+    });
+    console.error('Profile data:', normalizedProfile);
+    console.error('User ID:', user.id);
     return false;
   }
+  
+  console.log('Profile upserted successfully:', data);
   
   return true;
 }

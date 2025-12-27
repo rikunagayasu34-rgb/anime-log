@@ -476,6 +476,7 @@ body {
   }
 }
 
+
 @media (min-width: 1200px) {
   /* 大画面: 余白拡大、要素サイズ拡大 */
   .dna-card-container {

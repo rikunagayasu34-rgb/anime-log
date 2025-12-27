@@ -309,7 +309,7 @@ export function WatchlistTab({
 
       {/* 積みアニメ一覧 */}
       {watchlist.length > 0 ? (
-        <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-3">
           {watchlist.map(item => (
             <WatchlistCard
               key={item.id}

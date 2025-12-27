@@ -42,24 +42,36 @@ export function SettingsModal({
   const handleSave = async () => {
     // プロフィール情報を保存
     if (user) {
-      await upsertUserProfile({
-        username: userName,
-        handle: userHandle || null,
-        bio: userBio,
-        is_public: isProfilePublic,
-      });
-      // プロフィールを再読み込み
-      const profile = await getMyProfile();
-      if (profile) {
-        setMyProfile(profile);
-        setUserHandle(profile.handle || '');
+      try {
+        const success = await upsertUserProfile({
+          username: userName,
+          handle: userHandle || null,
+          bio: userBio,
+          is_public: isProfilePublic,
+        });
+        
+        if (!success) {
+          alert('プロフィールの保存に失敗しました。コンソールを確認してください。');
+          return;
+        }
+        
+        // プロフィールを再読み込み
+        const profile = await getMyProfile();
+        if (profile) {
+          setMyProfile(profile);
+          setUserHandle(profile.handle || '');
+        }
+        
+        // localStorageに保存
+        localStorage.setItem('userName', userName);
+        localStorage.setItem('userIcon', userIcon);
+        onClose();
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'プロフィールの保存に失敗しました';
+        alert(errorMessage);
+        console.error('Save error:', error);
       }
     }
-    
-    // localStorageに保存
-    localStorage.setItem('userName', userName);
-    localStorage.setItem('userIcon', userIcon);
-    onClose();
   };
 
   return (
@@ -159,9 +171,13 @@ export function SettingsModal({
                 <span className="text-gray-500 dark:text-gray-400">@</span>
                 <input
                   type="text"
+                  inputMode="text"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
                   value={userHandle}
                   onChange={(e) => {
-                    const value = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '');
+                    const value = e.target.value.replace(/[^a-zA-Z0-9_]/g, '');
                     setUserHandle(value);
                   }}
                   className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#e879d4] dark:bg-gray-700 dark:text-white"
