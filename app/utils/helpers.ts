@@ -89,3 +89,42 @@ export function getSeasonName(seasonOrYear: string | number, quarter?: number): 
   };
   return seasonMap[seasonOrYear as string] || (seasonOrYear as string);
 }
+
+// シーズン名を時系列順にソートする関数
+// シーズン名の形式: "YYYY年[春|夏|秋|冬]" または "未分類"
+// ソート順: 新しい年→古い年、同じ年は冬→春→夏→秋の順（冬が最新）、"未分類"は最後
+export function sortSeasonsByTime(seasons: { name: string; animes: any[] }[]): { name: string; animes: any[] }[] {
+  const seasonOrder: { [key: string]: number } = {
+    '冬': 0,
+    '春': 1,
+    '夏': 2,
+    '秋': 3,
+  };
+
+  return [...seasons].sort((a, b) => {
+    // "未分類"は最後に配置
+    if (a.name === '未分類') return 1;
+    if (b.name === '未分類') return -1;
+
+    // シーズン名を解析（例: "2024年秋"）
+    const matchA = a.name.match(/^(\d+)年(春|夏|秋|冬)$/);
+    const matchB = b.name.match(/^(\d+)年(春|夏|秋|冬)$/);
+
+    // パターンにマッチしない場合は最後に配置
+    if (!matchA) return 1;
+    if (!matchB) return -1;
+
+    const yearA = parseInt(matchA[1], 10);
+    const seasonA = matchA[2];
+    const yearB = parseInt(matchB[1], 10);
+    const seasonB = matchB[2];
+
+    // 年で降順ソート（新しい年が上）
+    if (yearA !== yearB) {
+      return yearB - yearA;
+    }
+
+    // 同じ年の場合は、冬→春→夏→秋の順（冬が最新）
+    return (seasonOrder[seasonA] || 999) - (seasonOrder[seasonB] || 999);
+  });
+}

@@ -5,7 +5,7 @@ import type { User } from '@supabase/supabase-js';
 import type { Anime, Season } from '../../types';
 import { searchAnime, searchAnimeBySeason } from '../../lib/anilist';
 import { supabase } from '../../lib/supabase';
-import { translateGenre } from '../../utils/helpers';
+import { translateGenre, sortSeasonsByTime } from '../../utils/helpers';
 import { availableTags } from '../../constants';
 
 export function AddAnimeFormModal({
@@ -290,6 +290,9 @@ export function AddAnimeFormModal({
                         );
                       }
                       
+                      // 時系列順にソート
+                      updatedSeasons = sortSeasonsByTime(updatedSeasons);
+                      
                       // 新しいシーズンが追加された場合は展開状態にする
                       const newExpandedSeasons = new Set(expandedSeasons);
                       if (!seasons.find(s => s.name === seasonName)) {
@@ -536,6 +539,9 @@ export function AddAnimeFormModal({
                           : season
                       );
                     }
+                    
+                    // 時系列順にソート
+                    updatedSeasons = sortSeasonsByTime(updatedSeasons);
                     
                     // Supabaseに保存（ログイン時のみ）
                     if (user) {

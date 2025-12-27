@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import type { User } from '@supabase/supabase-js';
 import type { Season, Anime } from '../types';
-import { supabaseToAnime } from '../utils/helpers';
+import { supabaseToAnime, sortSeasonsByTime } from '../utils/helpers';
 
 export function useAnimeData(user: User | null, isLoading: boolean) {
   const [seasons, setSeasons] = useState<Season[]>([]);
@@ -55,8 +55,10 @@ export function useAnimeData(user: User | null, isLoading: boolean) {
           ([name, animes]) => ({ name, animes })
         );
 
-        setSeasons(loadedSeasons);
-        expandFirstSeason(loadedSeasons);
+        // 時系列順にソート
+        const sortedSeasons = sortSeasonsByTime(loadedSeasons);
+        setSeasons(sortedSeasons);
+        expandFirstSeason(sortedSeasons);
       } else {
         setSeasons([]);
       }

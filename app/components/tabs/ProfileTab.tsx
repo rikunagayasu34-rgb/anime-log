@@ -968,16 +968,6 @@ export function ProfileTab({
             ご意見・ご感想
           </a>
           
-          {/* データをエクスポート */}
-          <button
-            onClick={() => {}}
-            className="w-full text-left py-2 text-gray-700 dark:text-gray-300 transition-colors"
-            onMouseEnter={(e) => { e.currentTarget.style.color = '#e879d4'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = ''; }}
-          >
-            データをエクスポート
-          </button>
-          
           {/* 自分のID表示 */}
           {user && (
             <div className="px-4 py-3 bg-gray-50 dark:bg-gray-700 rounded-xl">
