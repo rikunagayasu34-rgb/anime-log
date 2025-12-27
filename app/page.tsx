@@ -51,6 +51,8 @@ import { animeToSupabase, supabaseToAnime, extractSeriesName, getSeasonName } fr
 // メインページ
 export default function Home() {
   const [selectedAnime, setSelectedAnime] = useState<Anime | null>(null);
+  const [expandedYears, setExpandedYears] = useState<Set<string>>(new Set());
+  const [expandedSeasons, setExpandedSeasons] = useState<Set<string>>(new Set());
   
   // モーダル状態管理をカスタムフックで管理
   const {
@@ -132,8 +134,8 @@ export default function Home() {
   const {
     seasons,
     setSeasons,
-    expandedSeasons,
-    setExpandedSeasons,
+    expandedSeasons: oldExpandedSeasons,
+    setExpandedSeasons: setOldExpandedSeasons,
     allAnimes,
     averageRating,
     totalRewatchCount,
@@ -403,10 +405,13 @@ export default function Home() {
             totalRewatchCount={totalRewatchCount}
             averageRating={averageRating}
             seasons={seasons}
+            expandedYears={expandedYears}
+            setExpandedYears={setExpandedYears}
             expandedSeasons={expandedSeasons}
             setExpandedSeasons={setExpandedSeasons}
             onOpenAddForm={handleOpenAddForm}
             setSelectedAnime={setSelectedAnime}
+            allAnimes={allAnimes}
           />
         )}
         
@@ -508,8 +513,8 @@ export default function Home() {
         onClose={handleCloseAddForm}
         seasons={seasons}
         setSeasons={setSeasons}
-        expandedSeasons={expandedSeasons}
-        setExpandedSeasons={setExpandedSeasons}
+        expandedSeasons={oldExpandedSeasons}
+        setExpandedSeasons={setOldExpandedSeasons}
         user={user}
         extractSeriesName={extractSeriesName}
         getSeasonName={getSeasonName}

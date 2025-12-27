@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import type { User } from '@supabase/supabase-js';
 import type { Review } from '../types';
@@ -13,8 +13,15 @@ export function useAnimeReviews(user: User | null) {
   const [userSpoilerHidden, setUserSpoilerHidden] = useState(false);
   const [expandedSpoilerReviews, setExpandedSpoilerReviews] = useState<Set<string>>(new Set());
 
-  const loadReviews = async (animeId: number) => {
+  const loadReviews = useCallback(async (animeId: number) => {
     if (!user) {
+      setAnimeReviews([]);
+      return;
+    }
+    
+    // animeIdのバリデーション
+    if (!animeId || typeof animeId !== 'number' || isNaN(animeId)) {
+      console.warn('Invalid animeId provided to loadReviews:', animeId);
       setAnimeReviews([]);
       return;
     }
@@ -30,7 +37,12 @@ export function useAnimeReviews(user: User | null) {
         .single();
       
       if (animeError || !animeData) {
-        console.error('Failed to find anime:', animeError);
+        // エラーが空のオブジェクトの場合は詳細をログに出力
+        if (animeError && Object.keys(animeError).length === 0) {
+          console.error('Failed to find anime: No anime found with id', animeId, 'for user', user.id);
+        } else {
+          console.error('Failed to find anime:', animeError || 'No data returned');
+        }
         setAnimeReviews([]);
         setLoadingReviews(false);
         return;
@@ -97,7 +109,7 @@ export function useAnimeReviews(user: User | null) {
     } finally {
       setLoadingReviews(false);
     }
-  };
+  }, [user]);
 
   return {
     animeReviews,
