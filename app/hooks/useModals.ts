@@ -9,9 +9,7 @@ export function useModals() {
   const [showDNAModal, setShowDNAModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const [showCreateListModal, setShowCreateListModal] = useState(false);
   const [showAddCharacterModal, setShowAddCharacterModal] = useState(false);
-  const [showAddVoiceActorModal, setShowAddVoiceActorModal] = useState(false);
   const [showAddQuoteModal, setShowAddQuoteModal] = useState(false);
   const [showSongModal, setShowSongModal] = useState(false);
   const [showReviewModal, setShowReviewModal] = useState(false);
@@ -29,12 +27,8 @@ export function useModals() {
     setShowShareModal,
     showAuthModal,
     setShowAuthModal,
-    showCreateListModal,
-    setShowCreateListModal,
     showAddCharacterModal,
     setShowAddCharacterModal,
-    showAddVoiceActorModal,
-    setShowAddVoiceActorModal,
     showAddQuoteModal,
     setShowAddQuoteModal,
     showSongModal,

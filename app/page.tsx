@@ -7,17 +7,10 @@ import {
 } from './lib/supabase';
 import type { 
   Season, 
-  Anime, 
-  EvangelistList, 
-  VoiceActor 
+  Anime
 } from './types';
-import {
-  achievements,
-} from './constants';
-import { ProfileTab } from './components/tabs/ProfileTab';
 import { HomeTab } from './components/tabs/HomeTab';
-import { DiscoverTab } from './components/tabs/DiscoverTab';
-import { CollectionTab } from './components/tabs/CollectionTab';
+import MyPageTab from './components/tabs/MyPageTab';
 import { ReviewModal } from './components/modals/ReviewModal';
 import { SettingsModal } from './components/modals/SettingsModal';
 import { AuthModal } from './components/modals/AuthModal';
@@ -25,20 +18,17 @@ import { FavoriteAnimeModal } from './components/modals/FavoriteAnimeModal';
 import { SongModal } from './components/modals/SongModal';
 import { UserProfileModal } from './components/modals/UserProfileModal';
 import { FollowListModal } from './components/modals/FollowListModal';
-import { CreateListModal } from './components/modals/CreateListModal';
 import { AddCharacterModal } from './components/modals/AddCharacterModal';
-import { AddVoiceActorModal } from './components/modals/AddVoiceActorModal';
 import { AddQuoteModal } from './components/modals/AddQuoteModal';
 import { DNAModal } from './components/modals/DNAModal';
 import { AddAnimeFormModal } from './components/modals/AddAnimeFormModal';
 import { AnimeDetailModal } from './components/modals/AnimeDetailModal';
-import { ListDetailModal } from './components/modals/ListDetailModal';
 import { Navigation } from './components/Navigation';
 import { useAnimeReviews } from './hooks/useAnimeReviews';
 import { useAuth } from './hooks/useAuth';
 import { useUserProfile } from './hooks/useUserProfile';
 import { useAnimeData } from './hooks/useAnimeData';
-import { useSocial } from './hooks/useSocial';
+// import { useSocial } from './hooks/useSocial'; // 一時無効化
 import { useModals } from './hooks/useModals';
 import { useCollection } from './hooks/useCollection';
 import { useFormStates } from './hooks/useFormStates';
@@ -68,12 +58,8 @@ export default function Home() {
     setShowShareModal,
     showAuthModal,
     setShowAuthModal,
-    showCreateListModal,
-    setShowCreateListModal,
     showAddCharacterModal,
     setShowAddCharacterModal,
-    showAddVoiceActorModal,
-    setShowAddVoiceActorModal,
     showAddQuoteModal,
     setShowAddQuoteModal,
     showSongModal,
@@ -114,20 +100,12 @@ export default function Home() {
     setActiveTab,
     homeSubTab,
     setHomeSubTab,
-    discoverSubTab,
-    setDiscoverSubTab,
-    collectionSubTab,
-    setCollectionSubTab,
   } = useTabs();
   
   // コレクション関連をカスタムフックで管理
   const {
-    evangelistLists,
-    setEvangelistLists,
     favoriteCharacters,
     setFavoriteCharacters,
-    voiceActors,
-    setVoiceActors,
   } = useCollection();
   
   // アニメデータ管理をカスタムフックで管理
@@ -162,18 +140,6 @@ export default function Home() {
     setEditingCharacter,
     characterFilter,
     setCharacterFilter,
-    newVoiceActorName,
-    setNewVoiceActorName,
-    newVoiceActorImage,
-    setNewVoiceActorImage,
-    newVoiceActorAnimeIds,
-    setNewVoiceActorAnimeIds,
-    newVoiceActorNotes,
-    setNewVoiceActorNotes,
-    editingVoiceActor,
-    setEditingVoiceActor,
-    voiceActorSearchQuery,
-    setVoiceActorSearchQuery,
     editingQuote,
     setEditingQuote,
     newQuoteAnimeId,
@@ -188,12 +154,6 @@ export default function Home() {
     setQuoteFilterType,
     selectedAnimeForFilter,
     setSelectedAnimeForFilter,
-    selectedList,
-    setSelectedList,
-    editingList,
-    setEditingList,
-    listSortType,
-    setListSortType,
     songType,
     setSongType,
     newSongTitle,
@@ -204,71 +164,76 @@ export default function Home() {
   
   // モーダルハンドラーをカスタムフックで管理
   const {
-    handleCreateListSave,
-    handleCreateListClose,
     handleCharacterSave,
     handleCharacterClose,
     handleOpenAddCharacterModal,
     handleEditCharacter,
-    handleVoiceActorSave,
-    handleVoiceActorClose,
-    handleOpenAddVoiceActorModal,
-    handleEditVoiceActor,
   } = useModalHandlers({
-    evangelistLists,
-    setEvangelistLists,
     favoriteCharacters,
     setFavoriteCharacters,
-    voiceActors,
-    setVoiceActors,
-    editingList,
-    setEditingList,
     editingCharacter,
     setEditingCharacter,
-    editingVoiceActor,
-    setEditingVoiceActor,
-    setShowCreateListModal,
     setShowAddCharacterModal,
-    setShowAddVoiceActorModal,
     setNewCharacterName,
     setNewCharacterAnimeId,
     setNewCharacterImage,
     setNewCharacterCategory,
     setNewCharacterTags,
     setNewCustomTag,
-    setNewVoiceActorName,
-    setNewVoiceActorImage,
-    setNewVoiceActorAnimeIds,
-    setNewVoiceActorNotes,
   });
   
-  // SNS機能をカスタムフックで管理
-  const {
-    userSearchQuery,
-    setUserSearchQuery,
-    searchedUsers,
-    setSearchedUsers,
-    isSearchingUsers,
-    selectedUserProfile,
-    setSelectedUserProfile,
-    selectedUserAnimes,
-    setSelectedUserAnimes,
-    showUserProfileModal,
-    setShowUserProfileModal,
-    userFollowStatus,
-    setUserFollowStatus,
-    followCounts,
-    setFollowCounts,
-    showFollowListModal,
-    setShowFollowListModal,
-    followListType,
-    setFollowListType,
-    followListUsers,
-    setFollowListUsers,
-    handleUserSearch,
-    handleViewUserProfile,
-    handleToggleFollow,
-  } = useSocial(user);
+  // SNS機能をカスタムフックで管理（一時無効化）
+  // const {
+  //   userSearchQuery,
+  //   setUserSearchQuery,
+  //   searchedUsers,
+  //   setSearchedUsers,
+  //   isSearchingUsers,
+  //   selectedUserProfile,
+  //   setSelectedUserProfile,
+  //   selectedUserAnimes,
+  //   setSelectedUserAnimes,
+  //   showUserProfileModal,
+  //   setShowUserProfileModal,
+  //   userFollowStatus,
+  //   setUserFollowStatus,
+  //   followCounts,
+  //   setFollowCounts,
+  //   showFollowListModal,
+  //   setShowFollowListModal,
+  //   followListType,
+  //   setFollowListType,
+  //   followListUsers,
+  //   setFollowListUsers,
+  //   handleUserSearch,
+  //   handleViewUserProfile,
+  //   handleToggleFollow,
+  // } = useSocial(user);
+  
+  // 一時的なデフォルト値
+  const userSearchQuery = '';
+  const setUserSearchQuery = () => {};
+  const searchedUsers: any[] = [];
+  const isSearchingUsers = false;
+  const selectedUserProfile = null;
+  const setSelectedUserProfile = () => {};
+  const selectedUserAnimes: any[] = [];
+  const setSelectedUserAnimes = () => {};
+  const showUserProfileModal = false;
+  const setShowUserProfileModal = () => {};
+  const userFollowStatus: { [key: string]: boolean } = {};
+  const setUserFollowStatus = () => {};
+  const followCounts = { following: 0, followers: 0 };
+  const setFollowCounts = () => {};
+  const showFollowListModal = false;
+  const setShowFollowListModal = () => {};
+  const followListType: 'following' | 'followers' = 'following';
+  const setFollowListType = () => {};
+  const followListUsers: any[] = [];
+  const setFollowListUsers = () => {};
+  const handleUserSearch = async () => {};
+  const handleViewUserProfile = async () => {};
+  const handleToggleFollow = async () => {};
   
   // レビュー関連の状態をカスタムフックで管理
   const {
@@ -359,10 +324,6 @@ export default function Home() {
     }
   }, [allAnimes]);
 
-  const handleOpenCreateListModal = useCallback(() => {
-    setEditingList(null);
-    setShowCreateListModal(true);
-  }, []);
 
   const handleSaveAddQuoteModal = useCallback(() => {
     setShowAddQuoteModal(false);
@@ -421,95 +382,44 @@ export default function Home() {
           />
         )}
         
-        {activeTab === 'discover' && (
-          <DiscoverTab
+        {activeTab === 'mypage' && (
+          <MyPageTab
             allAnimes={allAnimes}
             seasons={seasons}
-          />
-        )}
-
-        {activeTab === 'collection' && (
-          <CollectionTab
-            collectionSubTab={collectionSubTab}
-            setCollectionSubTab={setCollectionSubTab}
-            allAnimes={allAnimes}
-            seasons={seasons}
-            setSeasons={setSeasons}
-            user={user}
-            supabaseClient={supabase}
-            achievements={achievements}
+            userName={userName}
+            userIcon={userIcon}
+            userHandle={userHandle}
+            userOtakuType={userOtakuType}
+            setUserOtakuType={setUserOtakuType}
+            favoriteAnimeIds={favoriteAnimeIds}
+            setFavoriteAnimeIds={setFavoriteAnimeIds}
+            averageRating={averageRating}
             favoriteCharacters={favoriteCharacters}
             setFavoriteCharacters={setFavoriteCharacters}
             characterFilter={characterFilter}
             setCharacterFilter={setCharacterFilter}
-            onOpenAddCharacterModal={handleOpenAddCharacterModal}
-            onEditCharacter={handleEditCharacter}
             quoteSearchQuery={quoteSearchQuery}
             setQuoteSearchQuery={setQuoteSearchQuery}
             quoteFilterType={quoteFilterType}
             setQuoteFilterType={setQuoteFilterType}
             selectedAnimeForFilter={selectedAnimeForFilter}
             setSelectedAnimeForFilter={setSelectedAnimeForFilter}
+            setSeasons={setSeasons}
+            user={user}
+            supabaseClient={supabase}
+            onOpenDNAModal={() => setShowDNAModal(true)}
+            onOpenSettingsModal={() => setShowSettings(true)}
+            setShowFavoriteAnimeModal={setShowFavoriteAnimeModal}
+            onOpenCharacterModal={handleOpenAddCharacterModal}
+            onEditCharacter={handleEditCharacter}
             onOpenAddQuoteModal={handleOpenAddQuoteModal}
             onEditQuote={handleEditQuote}
-            evangelistLists={evangelistLists}
-            setEvangelistLists={setEvangelistLists}
-            listSortType={listSortType}
-            setListSortType={setListSortType}
-            onSelectList={setSelectedList}
-            onOpenCreateListModal={handleOpenCreateListModal}
-            voiceActors={voiceActors}
-            setVoiceActors={setVoiceActors}
-            voiceActorSearchQuery={voiceActorSearchQuery}
-            setVoiceActorSearchQuery={setVoiceActorSearchQuery}
-            onOpenAddVoiceActorModal={handleOpenAddVoiceActorModal}
-            onEditVoiceActor={handleEditVoiceActor}
             setSelectedAnime={setSelectedAnime}
             setSongType={setSongType}
             setNewSongTitle={setNewSongTitle}
             setNewSongArtist={setNewSongArtist}
             setShowSongModal={setShowSongModal}
-          />
-        )}
-        
-        {activeTab === 'profile' && (
-          <ProfileTab
-            allAnimes={allAnimes}
-            seasons={seasons}
-            userName={userName}
-            userIcon={userIcon}
-            userHandle={userHandle}
-            averageRating={averageRating}
-            isDarkMode={isDarkMode}
-            setIsDarkMode={setIsDarkMode}
-            setShowSettings={setShowSettings}
             handleLogout={handleLogout}
-            userOtakuType={userOtakuType}
-            favoriteAnimeIds={favoriteAnimeIds}
-            setFavoriteAnimeIds={setFavoriteAnimeIds}
-            setShowFavoriteAnimeModal={setShowFavoriteAnimeModal}
-            followCounts={followCounts}
-            setShowFollowListModal={setShowFollowListModal}
-            setFollowListType={setFollowListType}
-            setFollowListUsers={setFollowListUsers}
-            user={user}
-            setUserName={setUserName}
-            setUserIcon={setUserIcon}
-            setUserOtakuType={setUserOtakuType}
-            isProfilePublic={isProfilePublic}
-            setIsProfilePublic={setIsProfilePublic}
-            userBio={userBio}
-            setUserBio={setUserBio}
-            upsertUserProfile={upsertUserProfile}
-            userSearchQuery={userSearchQuery}
-            setUserSearchQuery={setUserSearchQuery}
-            searchedUsers={searchedUsers}
-            isSearchingUsers={isSearchingUsers}
-            handleUserSearch={handleUserSearch}
-            handleViewUserProfile={handleViewUserProfile}
-            handleToggleFollow={handleToggleFollow}
-            userFollowStatus={userFollowStatus}
-            setActiveTab={setActiveTab}
           />
         )}
       </main>
@@ -626,28 +536,6 @@ export default function Home() {
         />
       )}
 
-      <CreateListModal
-        show={showCreateListModal}
-        onClose={handleCreateListClose}
-        allAnimes={allAnimes}
-        editingList={editingList}
-        onSave={handleCreateListSave}
-      />
-
-      {/* 布教リスト詳細モーダル */}
-      {selectedList && (
-        <ListDetailModal
-          selectedList={selectedList}
-          setSelectedList={setSelectedList}
-          allAnimes={allAnimes}
-          setSelectedAnime={setSelectedAnime}
-          setEditingList={setEditingList}
-          setShowCreateListModal={setShowCreateListModal}
-          evangelistLists={evangelistLists}
-          setEvangelistLists={setEvangelistLists}
-        />
-      )}
-
       <AddCharacterModal
         show={showAddCharacterModal}
         onClose={handleCharacterClose}
@@ -655,15 +543,6 @@ export default function Home() {
         editingCharacter={editingCharacter}
         favoriteCharacters={favoriteCharacters}
         onSave={handleCharacterSave}
-      />
-
-      <AddVoiceActorModal
-        show={showAddVoiceActorModal}
-        onClose={handleVoiceActorClose}
-        allAnimes={allAnimes}
-        editingVoiceActor={editingVoiceActor}
-        voiceActors={voiceActors}
-        onSave={handleVoiceActorSave}
       />
 
       <AddQuoteModal

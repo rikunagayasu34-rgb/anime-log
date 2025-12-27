@@ -1,0 +1,50 @@
+'use client';
+
+import { useState } from 'react';
+
+interface CollectionAccordionProps {
+  title: string;
+  count: number;
+  onAdd: () => void;
+  children: React.ReactNode;
+}
+
+export default function CollectionAccordion({ 
+  title, 
+  count, 
+  onAdd, 
+  children 
+}: CollectionAccordionProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-xl overflow-hidden shadow-md">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-[#6b5b6e] dark:text-white text-lg">{isOpen ? '▼' : '▶'}</span>
+          <span className="font-medium text-[#6b5b6e] dark:text-white font-mixed">{title}</span>
+          <span className="text-gray-500 dark:text-gray-400 text-sm font-mixed">({count})</span>
+        </div>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onAdd();
+          }}
+          className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors text-[#6b5b6e] dark:text-white text-lg"
+        >
+          +
+        </button>
+      </button>
+      
+      {isOpen && (
+        <div className="px-4 pb-4">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+

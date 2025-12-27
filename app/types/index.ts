@@ -94,7 +94,7 @@ export type FavoriteCharacter = {
   tags: string[];
 };
 
-// 声優の型定義
+// 声優の型定義（削除予定）
 export type VoiceActor = {
   id: number;
   name: string;
@@ -103,3 +103,6 @@ export type VoiceActor = {
   image: string;
   notes?: string;
 };
+
+// タブの型定義
+export type ActiveTab = 'home' | 'mypage';

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import type { FavoriteCharacter, VoiceActor, EvangelistList } from '../types';
+import type { FavoriteCharacter } from '../types';
 
 export function useFormStates() {
   // キャラクター関連のフォーム状態
@@ -14,14 +14,6 @@ export function useFormStates() {
   const [editingCharacter, setEditingCharacter] = useState<FavoriteCharacter | null>(null);
   const [characterFilter, setCharacterFilter] = useState<string | null>(null);
 
-  // 声優関連のフォーム状態
-  const [newVoiceActorName, setNewVoiceActorName] = useState('');
-  const [newVoiceActorImage, setNewVoiceActorImage] = useState('🎤');
-  const [newVoiceActorAnimeIds, setNewVoiceActorAnimeIds] = useState<number[]>([]);
-  const [newVoiceActorNotes, setNewVoiceActorNotes] = useState('');
-  const [editingVoiceActor, setEditingVoiceActor] = useState<VoiceActor | null>(null);
-  const [voiceActorSearchQuery, setVoiceActorSearchQuery] = useState('');
-
   // 名言関連のフォーム状態
   const [editingQuote, setEditingQuote] = useState<{ animeId: number; quoteIndex: number } | null>(null);
   const [newQuoteAnimeId, setNewQuoteAnimeId] = useState<number | null>(null);
@@ -30,11 +22,6 @@ export function useFormStates() {
   const [quoteSearchQuery, setQuoteSearchQuery] = useState('');
   const [quoteFilterType, setQuoteFilterType] = useState<'all' | 'anime' | 'character'>('all');
   const [selectedAnimeForFilter, setSelectedAnimeForFilter] = useState<number | null>(null);
-
-  // リスト関連のフォーム状態
-  const [selectedList, setSelectedList] = useState<EvangelistList | null>(null);
-  const [editingList, setEditingList] = useState<EvangelistList | null>(null);
-  const [listSortType, setListSortType] = useState<'date' | 'title' | 'count'>('date');
 
   // 楽曲関連のフォーム状態
   const [songType, setSongType] = useState<'op' | 'ed' | null>(null);
@@ -59,19 +46,6 @@ export function useFormStates() {
     setEditingCharacter,
     characterFilter,
     setCharacterFilter,
-    // 声優関連
-    newVoiceActorName,
-    setNewVoiceActorName,
-    newVoiceActorImage,
-    setNewVoiceActorImage,
-    newVoiceActorAnimeIds,
-    setNewVoiceActorAnimeIds,
-    newVoiceActorNotes,
-    setNewVoiceActorNotes,
-    editingVoiceActor,
-    setEditingVoiceActor,
-    voiceActorSearchQuery,
-    setVoiceActorSearchQuery,
     // 名言関連
     editingQuote,
     setEditingQuote,
@@ -87,13 +61,6 @@ export function useFormStates() {
     setQuoteFilterType,
     selectedAnimeForFilter,
     setSelectedAnimeForFilter,
-    // リスト関連
-    selectedList,
-    setSelectedList,
-    editingList,
-    setEditingList,
-    listSortType,
-    setListSortType,
     // 楽曲関連
     songType,
     setSongType,

@@ -3,8 +3,8 @@
 import type { User } from '@supabase/supabase-js';
 
 interface NavigationProps {
-  activeTab: 'home' | 'discover' | 'collection' | 'profile';
-  setActiveTab: (tab: 'home' | 'discover' | 'collection' | 'profile') => void;
+  activeTab: 'home' | 'mypage';
+  setActiveTab: (tab: 'home' | 'mypage') => void;
   isDarkMode: boolean;
   setIsDarkMode: (isDarkMode: boolean) => void;
   user: User | null;
@@ -91,7 +91,7 @@ export function Navigation({
       {/* ボトムナビゲーション（スマホ・タブレット） */}
       <nav className="block lg:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800 border-t dark:border-gray-700 z-10">
         <div className="max-w-md mx-auto">
-          <div className="grid grid-cols-4">
+          <div className="grid grid-cols-2">
             <button
               onClick={() => setActiveTab('home')}
               className={`flex flex-col items-center justify-center py-2 rounded-lg transition-all ${
@@ -107,42 +107,14 @@ export function Navigation({
             </button>
             
             <button
-              onClick={() => setActiveTab('discover')}
+              onClick={() => setActiveTab('mypage')}
               className={`flex flex-col items-center justify-center py-2 rounded-lg transition-all ${
-                activeTab === 'discover'
+                activeTab === 'mypage'
                   ? 'text-[#e879d4] dark:text-[#e879d4]'
                   : 'text-gray-500 dark:text-gray-400'
               }`}
             >
-              <span className={`text-2xl transition-transform ${activeTab === 'discover' ? 'scale-110' : 'scale-100'}`}>
-                📊
-              </span>
-              <span className="text-xs font-medium mt-1">統計</span>
-            </button>
-            
-            <button
-              onClick={() => setActiveTab('collection')}
-              className={`flex flex-col items-center justify-center py-2 rounded-lg transition-all ${
-                activeTab === 'collection'
-                  ? 'text-[#e879d4] dark:text-[#e879d4]'
-                  : 'text-gray-500 dark:text-gray-400'
-              }`}
-            >
-              <span className={`text-2xl transition-transform ${activeTab === 'collection' ? 'scale-110' : 'scale-100'}`}>
-                🏆
-              </span>
-              <span className="text-xs font-medium mt-1">コレクション</span>
-            </button>
-            
-            <button
-              onClick={() => setActiveTab('profile')}
-              className={`flex flex-col items-center justify-center py-2 rounded-lg transition-all ${
-                activeTab === 'profile'
-                  ? 'text-[#e879d4] dark:text-[#e879d4]'
-                  : 'text-gray-500 dark:text-gray-400'
-              }`}
-            >
-              <span className={`text-2xl transition-transform ${activeTab === 'profile' ? 'scale-110' : 'scale-100'}`}>
+              <span className={`text-2xl transition-transform ${activeTab === 'mypage' ? 'scale-110' : 'scale-100'}`}>
                 👤
               </span>
               <span className="text-xs font-medium mt-1">マイページ</span>
@@ -176,57 +148,15 @@ export function Navigation({
           </button>
           
           <button
-            onClick={() => setActiveTab('discover')}
+            onClick={() => setActiveTab('mypage')}
             className={`relative flex items-center gap-3 py-3 px-4 rounded-xl transition-all ${
-              activeTab === 'discover'
+              activeTab === 'mypage'
                 ? 'text-[#e879d4] font-semibold border border-[#e879d4]/20'
                 : 'text-gray-500 dark:text-gray-400 font-medium hover:bg-[#e879d4]/8 hover:text-[#e879d4]'
             }`}
-            style={activeTab === 'discover' ? { background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(232, 121, 212, 0.15) 100%)' } : undefined}
+            style={activeTab === 'mypage' ? { background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(232, 121, 212, 0.15) 100%)' } : undefined}
           >
-            {activeTab === 'discover' && (
-              <span 
-                className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 rounded-r"
-                style={{
-                  background: 'linear-gradient(180deg, #667eea 0%, #e879d4 100%)'
-                }}
-              />
-            )}
-            <span className="text-lg w-6 text-center">📊</span>
-            <span>統計</span>
-          </button>
-          
-          <button
-            onClick={() => setActiveTab('collection')}
-            className={`relative flex items-center gap-3 py-3 px-4 rounded-xl transition-all ${
-              activeTab === 'collection'
-                ? 'text-[#e879d4] font-semibold border border-[#e879d4]/20'
-                : 'text-gray-500 dark:text-gray-400 font-medium hover:bg-[#e879d4]/8 hover:text-[#e879d4]'
-            }`}
-            style={activeTab === 'collection' ? { background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(232, 121, 212, 0.15) 100%)' } : undefined}
-          >
-            {activeTab === 'collection' && (
-              <span 
-                className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 rounded-r"
-                style={{
-                  background: 'linear-gradient(180deg, #667eea 0%, #e879d4 100%)'
-                }}
-              />
-            )}
-            <span className="text-lg w-6 text-center">🏆</span>
-            <span>コレクション</span>
-          </button>
-          
-          <button
-            onClick={() => setActiveTab('profile')}
-            className={`relative flex items-center gap-3 py-3 px-4 rounded-xl transition-all ${
-              activeTab === 'profile'
-                ? 'text-[#e879d4] font-semibold border border-[#e879d4]/20'
-                : 'text-gray-500 dark:text-gray-400 font-medium hover:bg-[#e879d4]/8 hover:text-[#e879d4]'
-            }`}
-            style={activeTab === 'profile' ? { background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(232, 121, 212, 0.15) 100%)' } : undefined}
-          >
-            {activeTab === 'profile' && (
+            {activeTab === 'mypage' && (
               <span 
                 className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 rounded-r"
                 style={{
