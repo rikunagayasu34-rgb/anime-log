@@ -92,13 +92,13 @@ export function getSeasonName(seasonOrYear: string | number, quarter?: number): 
 
 // シーズン名を時系列順にソートする関数
 // シーズン名の形式: "YYYY年[春|夏|秋|冬]" または "未分類"
-// ソート順: 新しい年→古い年、同じ年は冬→春→夏→秋の順（冬が最新）、"未分類"は最後
+// ソート順: 新しい年→古い年、同じ年は秋→夏→春→冬の順（秋が最新、アニメのクールは冬→春→夏→秋の順で放送されるため）、"未分類"は最後
 export function sortSeasonsByTime(seasons: { name: string; animes: any[] }[]): { name: string; animes: any[] }[] {
   const seasonOrder: { [key: string]: number } = {
-    '冬': 0,
-    '春': 1,
-    '夏': 2,
-    '秋': 3,
+    '秋': 0,  // 最新
+    '夏': 1,
+    '春': 2,
+    '冬': 3,
   };
 
   return [...seasons].sort((a, b) => {
@@ -124,7 +124,7 @@ export function sortSeasonsByTime(seasons: { name: string; animes: any[] }[]): {
       return yearB - yearA;
     }
 
-    // 同じ年の場合は、冬→春→夏→秋の順（冬が最新）
+    // 同じ年の場合は、秋→夏→春→冬の順（秋が最新）
     return (seasonOrder[seasonA] || 999) - (seasonOrder[seasonB] || 999);
   });
 }
