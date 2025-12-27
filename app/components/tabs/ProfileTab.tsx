@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { User } from '@supabase/supabase-js';
 import type { Anime, Season } from '../../types';
 import type { UserProfile } from '../../lib/supabase';
 import { QRCodeSVG } from 'qrcode.react';
-import { availableTags } from '../../constants';
+import { availableTags, otakuTypes } from '../../constants';
 import { UserCard } from '../UserCard';
+import { getMyProfile } from '../../lib/supabase';
 
 export function ProfileTab({
   allAnimes,
@@ -87,6 +88,28 @@ export function ProfileTab({
   const [showShareModal, setShowShareModal] = useState(false);
   const [isHandleVisible, setIsHandleVisible] = useState(true);
   const [isIdVisible, setIsIdVisible] = useState(false);
+  const [editingOtakuType, setEditingOtakuType] = useState(false);
+  const [editingFavoriteAnime, setEditingFavoriteAnime] = useState(false);
+  const [customOtakuType, setCustomOtakuType] = useState('');
+  const [isEditingCustomOtakuType, setIsEditingCustomOtakuType] = useState(false);
+  const otakuTypeRef = useRef<HTMLDivElement>(null);
+
+  // オタクタイプ編集の外側クリックで閉じる
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (otakuTypeRef.current && !otakuTypeRef.current.contains(event.target as Node)) {
+        setEditingOtakuType(false);
+      }
+    };
+
+    if (editingOtakuType) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [editingOtakuType]);
   
   const handleSaveProfile = async () => {
     if (user) {
@@ -187,7 +210,15 @@ export function ProfileTab({
             otakuTypeLabel = '熱血派';
           }
         } else {
-          otakuTypeLabel = getOtakuTypeLabel(userOtakuType);
+          // カスタム入力またはプリセットタイプ
+          // プリセットタイプかどうかをチェック
+          const isPresetType = otakuTypes.some(t => t.value === userOtakuType);
+          if (isPresetType) {
+            otakuTypeLabel = getOtakuTypeLabel(userOtakuType);
+          } else {
+            // カスタム入力の場合はそのまま表示
+            otakuTypeLabel = userOtakuType;
+          }
         }
         
         // お気に入り曲
@@ -233,7 +264,7 @@ export function ProfileTab({
                 <div className="dna-top-section">
                   {/* プロフィールセクション */}
                   <section className="dna-profile-section">
-                    <div className="profile-left">
+                    <div className="profile-left relative">
                       {/* アバター */}
                       <div 
                         className="w-[72px] h-[72px] md:w-[76px] md:h-[76px] lg:w-[100px] lg:h-[100px] rounded-[18px] md:rounded-xl lg:rounded-2xl flex items-center justify-center overflow-hidden shadow-lg border-2 border-white/40"
@@ -270,15 +301,117 @@ export function ProfileTab({
                         )}
                       </div>
                       
-                      {/* タイプバッジ */}
-                      <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 md:px-4 md:py-2 rounded-full backdrop-blur-sm border border-white/50" style={{
-                        background: 'rgba(255, 255, 255, 0.35)',
-                        textShadow: '0 1px 2px rgba(0,0,0,0.1)',
-                        boxShadow: '0 2px 8px rgba(255,255,255,0.15), inset 0 1px 0 rgba(255,255,255,0.3)'
-                      }}>
-                        <div className="dna-type-icon"></div>
-                        <span className="text-white text-sm md:text-[13px] font-semibold">{otakuTypeLabel}</span>
-                      </div>
+                      {/* タイプバッジ（クリックで編集） */}
+                      {editingOtakuType ? (
+                        <div ref={otakuTypeRef} className="absolute z-10 mt-2 space-y-2 max-h-60 overflow-y-auto bg-white/95 dark:bg-gray-800/95 backdrop-blur-md rounded-xl p-3 border border-gray-200 dark:border-gray-700 shadow-lg" style={{ minWidth: '200px' }}>
+                          <button
+                            onClick={() => {
+                              setUserOtakuType('');
+                              setEditingOtakuType(false);
+                              setIsEditingCustomOtakuType(false);
+                              localStorage.setItem('userOtakuType', '');
+                            }}
+                            className={`w-full text-left px-3 py-2 rounded-lg border-2 transition-all ${
+                              !userOtakuType
+                                ? 'border-[#e879d4] bg-[#e879d4]/10 dark:bg-[#e879d4]/10'
+                                : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-700 hover:border-[#e879d4]'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="text-lg">🤖</span>
+                              <span className="text-gray-900 dark:text-white text-sm font-medium">自動判定</span>
+                            </div>
+                          </button>
+                          {otakuTypes.map((type) => (
+                            <button
+                              key={type.value}
+                              onClick={() => {
+                                setUserOtakuType(type.value);
+                                setEditingOtakuType(false);
+                                setIsEditingCustomOtakuType(false);
+                                localStorage.setItem('userOtakuType', type.value);
+                              }}
+                              className={`w-full text-left px-3 py-2 rounded-lg border-2 transition-all ${
+                                userOtakuType === type.value
+                                  ? 'border-[#e879d4] bg-[#e879d4]/10 dark:bg-[#e879d4]/10'
+                                  : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-700 hover:border-[#e879d4]'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="text-lg">{type.emoji}</span>
+                                <span className="text-gray-900 dark:text-white text-sm font-medium">{type.label}</span>
+                              </div>
+                            </button>
+                          ))}
+                          <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
+                            {isEditingCustomOtakuType ? (
+                              <div className="space-y-2">
+                                <input
+                                  type="text"
+                                  value={customOtakuType}
+                                  onChange={(e) => {
+                                    const value = e.target.value.slice(0, 10);
+                                    setCustomOtakuType(value);
+                                  }}
+                                  placeholder="カスタムタイプ（10文字まで）"
+                                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#e879d4] dark:bg-gray-700 dark:text-white text-sm"
+                                  autoFocus
+                                />
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => {
+                                      if (customOtakuType.trim()) {
+                                        setUserOtakuType(customOtakuType.trim());
+                                        localStorage.setItem('userOtakuType', customOtakuType.trim());
+                                      }
+                                      setEditingOtakuType(false);
+                                      setIsEditingCustomOtakuType(false);
+                                      setCustomOtakuType('');
+                                    }}
+                                    className="flex-1 px-3 py-2 bg-[#e879d4] text-white rounded-lg text-sm font-medium hover:bg-[#f09fe3] transition-colors"
+                                  >
+                                    保存
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setIsEditingCustomOtakuType(false);
+                                      setCustomOtakuType('');
+                                    }}
+                                    className="px-3 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                                  >
+                                    キャンセル
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => {
+                                  setIsEditingCustomOtakuType(true);
+                                  setCustomOtakuType(userOtakuType && !otakuTypes.some(t => t.value === userOtakuType) ? userOtakuType : '');
+                                }}
+                                className="w-full text-left px-3 py-2 rounded-lg border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-700 hover:border-[#e879d4] transition-all"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span className="text-lg">✏️</span>
+                                  <span className="text-gray-900 dark:text-white text-sm font-medium">カスタム入力</span>
+                                </div>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setEditingOtakuType(true)}
+                          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 md:px-4 md:py-2 rounded-full backdrop-blur-sm border border-white/50 hover:border-white/70 transition-all cursor-pointer" style={{
+                            background: 'rgba(255, 255, 255, 0.35)',
+                            textShadow: '0 1px 2px rgba(0,0,0,0.1)',
+                            boxShadow: '0 2px 8px rgba(255,255,255,0.15), inset 0 1px 0 rgba(255,255,255,0.3)'
+                          }}
+                        >
+                          <div className="dna-type-icon"></div>
+                          <span className="text-white text-sm md:text-[13px] font-semibold">{otakuTypeLabel}</span>
+                        </button>
+                      )}
                     </div>
                     
                     {/* ユーザー情報 */}
@@ -337,24 +470,27 @@ export function ProfileTab({
                   </section>
                 </div>
                 
-                {/* 下部セクション: カード2枚（均等幅） */}
-                <div className="dna-bottom-sections">
-              
-                  {/* 最推し作品 */}
+                {/* 下部セクション: 最推し作品（全幅） */}
+                <div className="dna-bottom-section">
+                  {/* 最推し作品（クリックで編集） */}
                   <div 
-                    className="content-card p-4 md:p-5 lg:p-6 min-h-[140px] md:min-h-[150px] lg:min-h-[180px] backdrop-blur-md border border-white/30 rounded-xl"
+                    className="content-card p-5 md:p-6 lg:p-8 backdrop-blur-md border border-white/30 rounded-xl cursor-pointer hover:border-white/50 transition-all"
                     style={{
                       background: 'rgba(255, 255, 255, 0.2)'
                     }}
+                    onClick={() => {
+                      setEditingFavoriteAnime(true);
+                      setShowFavoriteAnimeModal(true);
+                    }}
                   >
-                    <div className="card-header flex items-center justify-between mb-3 md:mb-4">
-                      <div className="card-title text-xs md:text-sm lg:text-[14px] font-semibold text-white flex items-center gap-2 md:gap-2.5">
+                    <div className="card-header flex items-center justify-between mb-4 md:mb-5">
+                      <div className="card-title text-sm md:text-base lg:text-lg font-semibold text-white flex items-center gap-2 md:gap-3">
                         <span className="dna-trophy-icon"></span>
                         最推し作品
                       </div>
                     </div>
                     {favoriteAnimeIds.length > 0 ? (
-                      <div className="favorite-content flex items-center gap-3.5 md:gap-4 lg:gap-5 flex-1">
+                      <div className="favorite-content flex items-center justify-center gap-4 md:gap-5 lg:gap-6 flex-1">
                         {favoriteAnimeIds
                           .map(id => allAnimes.find(a => a.id === id))
                           .filter((a): a is Anime => a !== undefined)
@@ -364,7 +500,7 @@ export function ProfileTab({
                             return (
                               <div
                                 key={anime.id}
-                                className="favorite-poster w-[52px] h-[72px] md:w-[60px] md:h-[84px] lg:w-[70px] lg:h-[100px] rounded-lg md:rounded-xl flex items-center justify-center overflow-hidden flex-shrink-0 backdrop-blur-md border border-white/30"
+                                className="favorite-poster w-[60px] h-[84px] md:w-[70px] md:h-[98px] lg:w-[80px] lg:h-[112px] rounded-lg md:rounded-xl flex items-center justify-center overflow-hidden flex-shrink-0 backdrop-blur-md border border-white/30 relative group"
                                 style={{
                                   background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.25) 0%, rgba(118, 75, 162, 0.25) 100%)',
                                 }}
@@ -389,56 +525,33 @@ export function ProfileTab({
                                 ) : (
                                   <div className="film-icon w-6 h-5 md:w-7 md:h-5.5 lg:w-7 lg:h-6 border-2 border-white/30 rounded-sm"></div>
                                 )}
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setFavoriteAnimeIds(favoriteAnimeIds.filter(fid => fid !== anime.id));
+                                    localStorage.setItem('favoriteAnimeIds', JSON.stringify(favoriteAnimeIds.filter(fid => fid !== anime.id)));
+                                  }}
+                                  className="absolute top-1 right-1 w-5 h-5 bg-red-500/80 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-xs"
+                                >
+                                  ✕
+                                </button>
                               </div>
                             );
                           })}
                       </div>
                     ) : (
-                      <div className="favorite-content flex items-center justify-center flex-1">
-                        <div className="favorite-empty text-center text-white/70 text-xs md:text-sm lg:text-[15px] leading-relaxed">
-                          <div className="favorite-poster w-[52px] h-[72px] md:w-[60px] md:h-[84px] lg:w-[70px] lg:h-[100px] mx-auto mb-3 flex items-center justify-center rounded-lg md:rounded-xl backdrop-blur-md border border-white/30" style={{
+                      <div className="favorite-content flex items-center justify-center flex-1 py-8">
+                        <div className="favorite-empty text-center text-white/70 text-sm md:text-base lg:text-lg leading-relaxed">
+                          <div className="favorite-poster w-[60px] h-[84px] md:w-[70px] md:h-[98px] lg:w-[80px] lg:h-[112px] mx-auto mb-4 flex items-center justify-center rounded-lg md:rounded-xl backdrop-blur-md border border-white/30" style={{
                             background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.25) 0%, rgba(118, 75, 162, 0.25) 100%)',
                           }}>
                             <div className="film-icon w-6 h-5 md:w-7 md:h-5.5 lg:w-7 lg:h-6 border-2 border-white/30 rounded-sm"></div>
                           </div>
-                          <p>まだ最推し作品が</p>
-                          <p>登録されていません</p>
+                          <p>クリックして最推し作品を</p>
+                          <p>追加しましょう</p>
                         </div>
                       </div>
                     )}
-                  </div>
-                  
-                  {/* アニメログ */}
-                  <div 
-                    className="content-card p-4 md:p-5 lg:p-6 min-h-[140px] md:min-h-[150px] lg:min-h-[180px] backdrop-blur-md border border-white/30 rounded-xl"
-                    style={{
-                      background: 'rgba(255, 255, 255, 0.2)'
-                    }}
-                  >
-                    <div className="card-header flex items-center justify-between mb-3 md:mb-4">
-                      <div className="card-title text-xs md:text-sm lg:text-[14px] font-semibold text-white flex items-center gap-2 md:gap-2.5">
-                        <span className="dna-chart-icon">
-                          <span></span>
-                          <span></span>
-                          <span></span>
-                          <span></span>
-                        </span>
-                        アニメログ
-                      </div>
-                      <a 
-                        onClick={(e) => {
-                          e.preventDefault();
-                          setActiveTab('home');
-                        }}
-                        className="view-all text-[11px] md:text-xs lg:text-[13px] text-[#00d4ff] hover:opacity-80 transition-opacity cursor-pointer"
-                      >
-                        すべて見る →
-                      </a>
-                    </div>
-                    <div className="log-content flex flex-col items-center justify-center flex-1 gap-2">
-                      <span className="dna-pen-icon"></span>
-                      <p className="log-empty-text text-white/70 text-xs md:text-sm lg:text-[15px]">視聴記録を追加しよう</p>
-                    </div>
                   </div>
                 </div>
               </div>
@@ -545,7 +658,7 @@ export function ProfileTab({
                               });
                               
                               // Flexboxレイアウトを再適用
-                              const flexElements = clonedCard.querySelectorAll('.flex, .dna-main-content, .dna-top-section, .dna-profile-section, .dna-stats-grid, .dna-bottom-sections, .profile-left, .profile-info, .favorite-content, .log-content, .card-header');
+                              const flexElements = clonedCard.querySelectorAll('.flex, .dna-main-content, .dna-top-section, .dna-profile-section, .dna-stats-grid, .dna-bottom-section, .profile-left, .profile-info, .favorite-content, .card-header');
                               flexElements.forEach((el) => {
                                 const htmlEl = el as HTMLElement;
                                 htmlEl.style.display = 'flex';
@@ -553,8 +666,7 @@ export function ProfileTab({
                                 if (htmlEl.classList.contains('dna-main-content') || 
                                     htmlEl.classList.contains('dna-top-section') || 
                                     htmlEl.classList.contains('dna-profile-section') || 
-                                    htmlEl.classList.contains('dna-bottom-sections') || 
-                                    htmlEl.classList.contains('log-content')) {
+                                    htmlEl.classList.contains('dna-bottom-section')) {
                                   htmlEl.style.flexDirection = 'column';
                                 }
                                 
@@ -583,19 +695,15 @@ export function ProfileTab({
                                   htmlEl.style.gap = '20px';
                                   htmlEl.style.flex = '1';
                                 }
-                                if (htmlEl.classList.contains('dna-bottom-sections')) {
-                                  htmlEl.style.display = 'grid';
-                                  htmlEl.style.gridTemplateColumns = '1fr 1fr';
-                                  htmlEl.style.gap = '24px';
+                                if (htmlEl.classList.contains('dna-bottom-section')) {
+                                  htmlEl.style.display = 'block';
+                                  htmlEl.style.width = '100%';
                                 }
                                 if (htmlEl.classList.contains('favorite-content')) {
                                   htmlEl.style.flexDirection = 'row';
                                   htmlEl.style.alignItems = 'center';
-                                  htmlEl.style.gap = '14px';
-                                }
-                                if (htmlEl.classList.contains('log-content')) {
-                                  htmlEl.style.alignItems = 'center';
                                   htmlEl.style.justifyContent = 'center';
+                                  htmlEl.style.gap = '16px';
                                 }
                               });
                               
@@ -946,14 +1054,14 @@ export function ProfileTab({
       <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-md">
         <h3 className="font-bold text-lg mb-3 text-[#6b5b6e] dark:text-white">設定</h3>
         <div className="space-y-3">
-          {/* DNAカード編集 */}
+          {/* プロフィール編集 */}
           <button
             onClick={() => setShowSettings(true)}
             className="w-full text-left py-2 text-gray-700 dark:text-gray-300 transition-colors"
             onMouseEnter={(e) => { e.currentTarget.style.color = '#e879d4'; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = ''; }}
           >
-            DNAカード編集
+            プロフィール編集
           </button>
           
           {/* ご意見・ご感想 */}

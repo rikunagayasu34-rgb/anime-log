@@ -390,10 +390,9 @@ body {
   gap: 10px;
 }
 
-.dna-card-container .dna-bottom-sections {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.dna-card-container .dna-bottom-section {
+  display: block;
+  width: 100%;
 }
 
 @media (min-width: 600px) {
@@ -412,9 +411,8 @@ body {
     gap: 14px;
   }
   
-  .dna-card-container .dna-bottom-sections {
-    flex-direction: row;
-    gap: 14px;
+  .dna-card-container .dna-bottom-section {
+    width: 100%;
   }
   
   .profile-left {
@@ -452,11 +450,9 @@ body {
     gap: 20px;
   }
   
-  /* 下部セクション: カード2枚を均等幅で横並び */
-  .dna-card-container .dna-bottom-sections {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 24px;
+  /* 下部セクション: 最推し作品を全幅で表示 */
+  .dna-card-container .dna-bottom-section {
+    width: 100%;
   }
   
   .profile-info {
@@ -479,7 +475,7 @@ body {
     gap: 32px;
   }
   
-  .dna-card-container .dna-bottom-sections {
-    gap: 28px;
+  .dna-card-container .dna-bottom-section {
+    width: 100%;
   }
 }
