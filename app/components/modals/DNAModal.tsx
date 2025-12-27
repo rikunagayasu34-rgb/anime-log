@@ -23,8 +23,8 @@ export function DNAModal({
   averageRating: number;
   totalRewatchCount: number;
   userName: string;
-  userIcon: string;
-  userHandle: string;
+  userIcon: string | null;
+  userHandle: string | null;
   userOtakuType: string;
 }) {
   if (!show) return null;

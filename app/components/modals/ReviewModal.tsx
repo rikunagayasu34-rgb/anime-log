@@ -19,7 +19,7 @@ export function ReviewModal({
   selectedAnime: Anime | null;
   user: User | null;
   userName: string;
-  userIcon: string;
+  userIcon: string | null;
   onReviewPosted: () => Promise<void>;
 }) {
   const [reviewMode, setReviewMode] = useState<'overall' | 'episode'>('overall');

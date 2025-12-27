@@ -9,8 +9,8 @@ interface AnimeDNASectionProps {
   allAnimes: Anime[];
   seasons: Season[];
   userName: string;
-  userIcon: string;
-  userHandle: string;
+  userIcon: string | null;
+  userHandle: string | null;
   userOtakuType: string;
   setUserOtakuType: (type: string) => void;
   favoriteAnimeIds: number[];

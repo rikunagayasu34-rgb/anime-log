@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import type { UserProfile } from '../../lib/supabase';
+import { supabase } from '../../lib/supabase';
 
 // オタクタイプのプリセット定義
 const OTAKU_TYPES = [

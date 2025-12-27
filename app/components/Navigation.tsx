@@ -9,7 +9,7 @@ interface NavigationProps {
   setIsDarkMode: (isDarkMode: boolean) => void;
   user: User | null;
   userName: string;
-  userIcon: string;
+  userIcon: string | null;
   setShowSettings: (show: boolean) => void;
   setShowAuthModal: (show: boolean) => void;
 }

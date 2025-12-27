@@ -50,8 +50,8 @@ export function ProfileTab({
   allAnimes: Anime[];
   seasons: Season[];
   userName: string;
-  userIcon: string;
-  userHandle: string;
+  userIcon: string | null;
+  userHandle: string | null;
   averageRating: number;
   isDarkMode: boolean;
   setIsDarkMode: (value: boolean) => void;
@@ -119,7 +119,9 @@ export function ProfileTab({
       });
     }
     localStorage.setItem('userName', userName);
-    localStorage.setItem('userIcon', userIcon);
+    if (userIcon) {
+      localStorage.setItem('userIcon', userIcon);
+    }
     if (userOtakuType) {
       localStorage.setItem('userOtakuType', userOtakuType);
     } else {
