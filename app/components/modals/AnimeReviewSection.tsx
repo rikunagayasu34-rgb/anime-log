@@ -100,13 +100,14 @@ export function AnimeReviewSection({
               alt="アイコン"
               className="w-6 h-6 rounded-full object-cover"
               onError={(e) => {
-                (e.target as HTMLImageElement).style.display = 'none';
-                const parent = (e.target as HTMLImageElement).parentElement;
+                const target = e.target as HTMLImageElement;
+                target.style.display = 'none';
+                const parent = target.parentElement;
                 if (parent) {
                   const span = document.createElement('span');
                   span.className = 'text-xl';
                   span.textContent = '👤';
-                  parent.insertBefore(span, e.target);
+                  parent.insertBefore(span, target);
                 }
               }}
             />

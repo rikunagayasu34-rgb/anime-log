@@ -567,8 +567,8 @@ export function ProfileTab({
                     </div>
                     <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                       <div
-                        className="h-2 rounded-full transition-all" style={{ background: '#ff6b9d' }}
-                        style={{ width: `${percentage}%` }}
+                        className="h-2 rounded-full transition-all"
+                        style={{ background: '#ff6b9d', width: `${percentage}%` }}
                       />
                     </div>
                   </div>
