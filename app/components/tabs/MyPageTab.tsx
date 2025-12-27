@@ -63,6 +63,7 @@ export default function MyPageTab(props: MyPageTabProps) {
         averageRating={props.averageRating}
         setShowFavoriteAnimeModal={props.setShowFavoriteAnimeModal}
         onOpenDNAModal={props.onOpenDNAModal}
+        onOpenSettingsModal={props.onOpenSettingsModal}
       />
       
       {/* 統計・傾向とコレクション（同じレイヤー） */}

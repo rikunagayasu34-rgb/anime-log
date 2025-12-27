@@ -16,6 +16,9 @@ export type UserProfile = {
   handle: string | null; // @で始まるハンドル（@なしで保存）
   bio: string | null;
   is_public: boolean;
+  otaku_type: string | null; // 'auto' | プリセット名 | null
+  otaku_type_custom: string | null; // カスタム入力の場合のテキスト
+  avatar_url: string | null; // Supabase StorageのURL
   created_at: string;
   updated_at: string;
 };
@@ -267,12 +270,68 @@ export async function getFollowCounts(userId: string): Promise<{ following: numb
   };
 }
 
+// アバター画像をSupabase Storageにアップロード
+export async function uploadAvatar(file: File): Promise<string | null> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  try {
+    // ファイル拡張子を取得
+    const extension = file.name.split('.').pop() || 'jpg';
+    const fileName = `${user.id}/${Date.now()}.${extension}`;
+
+    // 既存のアバターを削除（オプション）
+    try {
+      const { data: existingFiles } = await supabase.storage
+        .from('avatars')
+        .list(user.id);
+      
+      if (existingFiles && existingFiles.length > 0) {
+        // 古いファイルを削除（最新の1つだけ保持する場合）
+        const filesToDelete = existingFiles.map(f => `${user.id}/${f.name}`);
+        await supabase.storage
+          .from('avatars')
+          .remove(filesToDelete);
+      }
+    } catch (error) {
+      // 既存ファイルの削除に失敗しても続行（初回アップロードの場合など）
+      console.warn('Failed to delete existing avatars:', error);
+    }
+
+    // 新しいファイルをアップロード
+    const { data, error } = await supabase.storage
+      .from('avatars')
+      .upload(fileName, file, {
+        cacheControl: '3600',
+        upsert: false,
+      });
+
+    if (error) {
+      console.error('Failed to upload avatar:', error);
+      return null;
+    }
+
+    // 公開URLを取得
+    const { data: urlData } = supabase.storage
+      .from('avatars')
+      .getPublicUrl(fileName);
+
+    return urlData.publicUrl;
+  } catch (error) {
+    console.error('Error uploading avatar:', error);
+    return null;
+  }
+}
+
 // プロフィール作成・更新
 export async function upsertUserProfile(profile: {
   username: string;
   handle?: string | null;
   bio?: string;
   is_public?: boolean;
+  otaku_type?: string | null;
+  otaku_type_custom?: string | null;
+  avatar_url?: string | null;
 }): Promise<boolean> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return false;
@@ -313,6 +372,10 @@ export async function upsertUserProfile(profile: {
   const normalizedProfile = {
     ...profile,
     handle: normalizedHandle,
+    // otaku_type, otaku_type_custom, avatar_url も含める
+    otaku_type: profile.otaku_type || null,
+    otaku_type_custom: profile.otaku_type_custom || null,
+    avatar_url: profile.avatar_url || null,
   };
   
   const { error, data } = await supabase

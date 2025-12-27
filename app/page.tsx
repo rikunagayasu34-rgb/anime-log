@@ -2,9 +2,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from './lib/supabase';
-import { 
-  upsertUserProfile,
-} from './lib/supabase';
 import type { 
   Season, 
   Anime
@@ -76,23 +73,21 @@ export default function Home() {
   
   // ユーザープロフィール管理をカスタムフックで管理
   const {
+    profile,
+    loading: profileLoading,
+    avatarPublicUrl,
+    saveProfile,
+    saveOtakuType,
     userName,
-    setUserName,
     userIcon,
-    setUserIcon,
     userOtakuType,
-    setUserOtakuType,
     favoriteAnimeIds,
     setFavoriteAnimeIds,
     myProfile,
-    setMyProfile,
     isProfilePublic,
-    setIsProfilePublic,
     userBio,
-    setUserBio,
     userHandle,
-    setUserHandle,
-  } = useUserProfile(user);
+  } = useUserProfile();
   
   // タブ状態管理をカスタムフックで管理
   const {
@@ -390,7 +385,12 @@ export default function Home() {
             userIcon={userIcon}
             userHandle={userHandle}
             userOtakuType={userOtakuType}
-            setUserOtakuType={setUserOtakuType}
+            setUserOtakuType={(type: string) => {
+              // 後方互換性のため、一時的にlocalStorageに保存
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('userOtakuType', type);
+              }
+            }}
             favoriteAnimeIds={favoriteAnimeIds}
             setFavoriteAnimeIds={setFavoriteAnimeIds}
             averageRating={averageRating}
@@ -452,19 +452,8 @@ export default function Home() {
       <SettingsModal
         show={showSettings}
         onClose={handleCloseSettings}
-        userName={userName}
-        setUserName={setUserName}
-        userIcon={userIcon}
-        setUserIcon={setUserIcon}
-        userHandle={userHandle}
-        setUserHandle={setUserHandle}
-        isProfilePublic={isProfilePublic}
-        setIsProfilePublic={setIsProfilePublic}
-        userBio={userBio}
-        setUserBio={setUserBio}
-        user={user}
-        upsertUserProfile={upsertUserProfile}
-        setMyProfile={setMyProfile}
+        profile={profile}
+        saveProfile={saveProfile}
       />
 
       <FavoriteAnimeModal

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState } from 'react';
 import type { Anime, Season } from '../../../types';
 import { otakuTypes } from '../../../constants';
 import { QRCodeSVG } from 'qrcode.react';
@@ -18,6 +18,7 @@ interface AnimeDNASectionProps {
   averageRating: number;
   setShowFavoriteAnimeModal: (show: boolean) => void;
   onOpenDNAModal: () => void;
+  onOpenSettingsModal: () => void; // 追加
 }
 
 export default function AnimeDNASection({
@@ -33,31 +34,11 @@ export default function AnimeDNASection({
   averageRating,
   setShowFavoriteAnimeModal,
   onOpenDNAModal,
+  onOpenSettingsModal,
 }: AnimeDNASectionProps) {
   const [isHandleVisible, setIsHandleVisible] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
-  const [editingOtakuType, setEditingOtakuType] = useState(false);
   const [editingFavoriteAnime, setEditingFavoriteAnime] = useState(false);
-  const [customOtakuType, setCustomOtakuType] = useState('');
-  const [isEditingCustomOtakuType, setIsEditingCustomOtakuType] = useState(false);
-  const otakuTypeRef = useRef<HTMLDivElement>(null);
-
-  // オタクタイプ編集の外側クリックで閉じる
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (otakuTypeRef.current && !otakuTypeRef.current.contains(event.target as Node)) {
-        setEditingOtakuType(false);
-      }
-    };
-
-    if (editingOtakuType) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [editingOtakuType]);
 
   const count = allAnimes.filter(a => a.watched === true).length;
   const totalRewatchCount = allAnimes.reduce((sum, a) => sum + (a.rewatchCount ?? 0), 0);
@@ -174,117 +155,21 @@ export default function AnimeDNASection({
                   )}
                 </div>
                 
-                {/* タイプバッジ（クリックで編集） */}
-                {editingOtakuType ? (
-                  <div ref={otakuTypeRef} className="absolute z-10 mt-2 space-y-2 max-h-60 overflow-y-auto bg-white/95 dark:bg-gray-800/95 backdrop-blur-md rounded-xl p-3 border border-gray-200 dark:border-gray-700 shadow-lg" style={{ minWidth: '200px' }}>
-                    <button
-                      onClick={() => {
-                        setUserOtakuType('');
-                        setEditingOtakuType(false);
-                        setIsEditingCustomOtakuType(false);
-                        localStorage.setItem('userOtakuType', '');
-                      }}
-                      className={`w-full text-left px-3 py-2 rounded-lg border-2 transition-all ${
-                        !userOtakuType
-                          ? 'border-[#e879d4] bg-[#e879d4]/10 dark:bg-[#e879d4]/10'
-                          : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-700 hover:border-[#e879d4]'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-lg">🤖</span>
-                        <span className="text-gray-900 dark:text-white text-sm font-medium">自動判定</span>
-                      </div>
-                    </button>
-                    {otakuTypes.map((type) => (
-                      <button
-                        key={type.value}
-                        onClick={() => {
-                          setUserOtakuType(type.value);
-                          setEditingOtakuType(false);
-                          setIsEditingCustomOtakuType(false);
-                          localStorage.setItem('userOtakuType', type.value);
-                        }}
-                        className={`w-full text-left px-3 py-2 rounded-lg border-2 transition-all ${
-                          userOtakuType === type.value
-                            ? 'border-[#e879d4] bg-[#e879d4]/10 dark:bg-[#e879d4]/10'
-                            : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-700 hover:border-[#e879d4]'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="text-lg">{type.emoji}</span>
-                          <span className="text-gray-900 dark:text-white text-sm font-medium">{type.label}</span>
-                        </div>
-                      </button>
-                    ))}
-                    <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
-                      {isEditingCustomOtakuType ? (
-                        <div className="space-y-2">
-                          <input
-                            type="text"
-                            value={customOtakuType}
-                            onChange={(e) => {
-                              const value = e.target.value.slice(0, 10);
-                              setCustomOtakuType(value);
-                            }}
-                            placeholder="カスタムタイプ（10文字まで）"
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#e879d4] dark:bg-gray-700 dark:text-white text-sm"
-                            autoFocus
-                          />
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => {
-                                if (customOtakuType.trim()) {
-                                  setUserOtakuType(customOtakuType.trim());
-                                  localStorage.setItem('userOtakuType', customOtakuType.trim());
-                                }
-                                setEditingOtakuType(false);
-                                setIsEditingCustomOtakuType(false);
-                                setCustomOtakuType('');
-                              }}
-                              className="flex-1 px-3 py-2 bg-[#e879d4] text-white rounded-lg text-sm font-medium hover:bg-[#f09fe3] transition-colors"
-                            >
-                              保存
-                            </button>
-                            <button
-                              onClick={() => {
-                                setIsEditingCustomOtakuType(false);
-                                setCustomOtakuType('');
-                              }}
-                              className="px-3 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
-                            >
-                              キャンセル
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => {
-                            setIsEditingCustomOtakuType(true);
-                            setCustomOtakuType(userOtakuType && !otakuTypes.some(t => t.value === userOtakuType) ? userOtakuType : '');
-                          }}
-                          className="w-full text-left px-3 py-2 rounded-lg border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-700 hover:border-[#e879d4] transition-all"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="text-lg">✏️</span>
-                            <span className="text-gray-900 dark:text-white text-sm font-medium">カスタム入力</span>
-                          </div>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => setEditingOtakuType(true)}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 md:px-4 md:py-2 rounded-full backdrop-blur-sm border border-white/50 hover:border-white/70 transition-all cursor-pointer" style={{
-                      background: 'rgba(255, 255, 255, 0.35)',
-                      textShadow: '0 1px 2px rgba(0,0,0,0.1)',
-                      boxShadow: '0 2px 8px rgba(255,255,255,0.15), inset 0 1px 0 rgba(255,255,255,0.3)'
-                    }}
-                  >
-                    <div className="dna-type-icon"></div>
-                    <span className="text-white text-sm md:text-[13px] font-semibold">{otakuTypeLabel}</span>
-                  </button>
-                )}
+                {/* タイプバッジ（クリックでSettingsModalを開く） */}
+                <button
+                  onClick={onOpenSettingsModal}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 md:px-4 md:py-2 rounded-full backdrop-blur-sm border border-white/50 hover:border-white/70 hover:opacity-80 transition-all cursor-pointer" 
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.35)',
+                    textShadow: '0 1px 2px rgba(0,0,0,0.1)',
+                    boxShadow: '0 2px 8px rgba(255,255,255,0.15), inset 0 1px 0 rgba(255,255,255,0.3)'
+                  }}
+                  title="クリックして編集"
+                >
+                  <div className="dna-type-icon"></div>
+                  <span className="text-white text-sm md:text-[13px] font-semibold">{otakuTypeLabel}</span>
+                  <span className="ml-1 text-xs opacity-60">✏️</span>
+                </button>
               </div>
               
               {/* ユーザー情報 */}
