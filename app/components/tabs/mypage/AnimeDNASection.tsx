@@ -1,9 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import html2canvas from 'html2canvas';
+import { createRoot } from 'react-dom/client';
 import type { Anime, Season } from '../../../types';
 import { otakuTypes } from '../../../constants';
 import { QRCodeSVG } from 'qrcode.react';
+import DNACardForExport from './DNACardForExport';
 
 // SettingsModalと同じID→ラベルのマッピング
 const OTAKU_TYPE_ID_TO_LABEL: { [key: string]: { emoji: string; label: string } } = {
@@ -51,20 +54,19 @@ export default function AnimeDNASection({
   const [isHandleVisible, setIsHandleVisible] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [editingFavoriteAnime, setEditingFavoriteAnime] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
-  const count = allAnimes.filter(a => a.watched === true).length;
-  const totalRewatchCount = allAnimes.reduce((sum, a) => sum + (a.rewatchCount ?? 0), 0);
-  const ratings = allAnimes.filter(a => a.rating > 0).map(a => a.rating);
-  const calculatedAverageRating = ratings.length > 0 ? ratings.reduce((sum, r) => sum + r, 0) / ratings.length : 0;
-  
-  // オタクタイプの判定
-  const tagCounts: { [key: string]: number } = {};
-  allAnimes.forEach(anime => {
-    anime.tags?.forEach(tag => {
-      tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+  // オタクタイプの判定用のタグカウント
+  const tagCounts = useMemo(() => {
+    const counts: { [key: string]: number } = {};
+    allAnimes.forEach(anime => {
+      anime.tags?.forEach(tag => {
+        counts[tag] = (counts[tag] || 0) + 1;
+      });
     });
-  });
-  
+    return counts;
+  }, [allAnimes]);
+
   // オタクタイプから絵文字を除去する関数
   const getOtakuTypeLabel = (type: string): string => {
     return type.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu, '').trim();
@@ -75,59 +77,109 @@ export default function AnimeDNASection({
     const emojiMatch = type.match(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu);
     return emojiMatch ? emojiMatch[0] : '🎵';
   };
-  
-  // ユーザーが設定したオタクタイプを使用、なければ自動判定
-  let otakuTypeValue = userOtakuType || '🎵 音響派';
-  let otakuTypeLabel = '音響派';
-  let otakuTypeEmoji = '🎵';
-  if (!userOtakuType) {
-    // 自動判定
-    if (tagCounts['考察'] && tagCounts['考察'] >= 3) {
-      otakuTypeValue = '🔍 考察厨';
-      otakuTypeLabel = '考察厨';
-      otakuTypeEmoji = '🔍';
-    } else if (tagCounts['泣ける'] && tagCounts['泣ける'] >= 3) {
-      otakuTypeValue = '😭 感情移入型';
-      otakuTypeLabel = '感情移入型';
-      otakuTypeEmoji = '😭';
-    } else if (tagCounts['作画神'] && tagCounts['作画神'] >= 3) {
-      otakuTypeValue = '🎨 作画厨';
-      otakuTypeLabel = '作画厨';
-      otakuTypeEmoji = '🎨';
-    } else if (tagCounts['音楽最高'] && tagCounts['音楽最高'] >= 3) {
-      otakuTypeValue = '🎵 音響派';
-      otakuTypeLabel = '音響派';
-      otakuTypeEmoji = '🎵';
-    } else if (tagCounts['キャラ萌え'] && tagCounts['キャラ萌え'] >= 3) {
-      otakuTypeValue = '💕 キャラオタ';
-      otakuTypeLabel = 'キャラオタ';
-      otakuTypeEmoji = '💕';
-    } else if (tagCounts['熱い'] && tagCounts['熱い'] >= 3) {
-      otakuTypeValue = '🔥 熱血派';
-      otakuTypeLabel = '熱血派';
-      otakuTypeEmoji = '🔥';
+
+  // オタクタイプの表示テキスト
+  const otakuTypeDisplay = useMemo(() => {
+    if (!userOtakuType) {
+      // 自動判定
+      if (tagCounts['考察'] && tagCounts['考察'] >= 3) {
+        return '🔍 考察厨';
+      } else if (tagCounts['泣ける'] && tagCounts['泣ける'] >= 3) {
+        return '😭 感情移入型';
+      } else if (tagCounts['作画神'] && tagCounts['作画神'] >= 3) {
+        return '🎨 作画厨';
+      } else if (tagCounts['音楽最高'] && tagCounts['音楽最高'] >= 3) {
+        return '🎵 音響派';
+      } else if (tagCounts['キャラ萌え'] && tagCounts['キャラ萌え'] >= 3) {
+        return '💕 キャラオタ';
+      } else if (tagCounts['熱い'] && tagCounts['熱い'] >= 3) {
+        return '🔥 熱血派';
+      }
+      return '🎵 音響派'; // デフォルト
     }
-  } else {
-    // ID形式（slice_of_lifeなど）をラベルに変換
+    // ID形式をラベルに変換
     if (OTAKU_TYPE_ID_TO_LABEL[userOtakuType]) {
-      otakuTypeLabel = OTAKU_TYPE_ID_TO_LABEL[userOtakuType].label;
-      otakuTypeEmoji = OTAKU_TYPE_ID_TO_LABEL[userOtakuType].emoji;
-      otakuTypeValue = `${OTAKU_TYPE_ID_TO_LABEL[userOtakuType].emoji} ${OTAKU_TYPE_ID_TO_LABEL[userOtakuType].label}`;
+      return `${OTAKU_TYPE_ID_TO_LABEL[userOtakuType].emoji} ${OTAKU_TYPE_ID_TO_LABEL[userOtakuType].label}`;
+    }
+    // カスタム入力またはプリセットタイプ（絵文字付き）
+    const isPresetType = otakuTypes.some(t => t.value === userOtakuType);
+    if (isPresetType) {
+      return userOtakuType;
+    }
+    // カスタムテキストの場合
+    return userOtakuType;
+  }, [userOtakuType, tagCounts]);
+
+  // 最推し作品のデータを準備
+  const favoriteAnimesData = useMemo(() => {
+    return favoriteAnimeIds
+      .map(id => allAnimes.find(a => a.id === id))
+      .filter((a): a is Anime => a !== undefined)
+      .slice(0, 5)
+      .map(anime => ({
+        id: String(anime.id),
+        title: anime.title,
+        imageUrl: anime.image && (anime.image.startsWith('http://') || anime.image.startsWith('https://')) ? anime.image : undefined,
+      }));
+  }, [favoriteAnimeIds, allAnimes]);
+  
+  // ユーザーが設定したオタクタイプを使用、なければ自動判定（表示用）
+  const { otakuTypeValue, otakuTypeLabel, otakuTypeEmoji } = useMemo(() => {
+    let value = userOtakuType || '🎵 音響派';
+    let label = '音響派';
+    let emoji = '🎵';
+    
+    if (!userOtakuType) {
+      // 自動判定
+      if (tagCounts['考察'] && tagCounts['考察'] >= 3) {
+        value = '🔍 考察厨';
+        label = '考察厨';
+        emoji = '🔍';
+      } else if (tagCounts['泣ける'] && tagCounts['泣ける'] >= 3) {
+        value = '😭 感情移入型';
+        label = '感情移入型';
+        emoji = '😭';
+      } else if (tagCounts['作画神'] && tagCounts['作画神'] >= 3) {
+        value = '🎨 作画厨';
+        label = '作画厨';
+        emoji = '🎨';
+      } else if (tagCounts['音楽最高'] && tagCounts['音楽最高'] >= 3) {
+        value = '🎵 音響派';
+        label = '音響派';
+        emoji = '🎵';
+      } else if (tagCounts['キャラ萌え'] && tagCounts['キャラ萌え'] >= 3) {
+        value = '💕 キャラオタ';
+        label = 'キャラオタ';
+        emoji = '💕';
+      } else if (tagCounts['熱い'] && tagCounts['熱い'] >= 3) {
+        value = '🔥 熱血派';
+        label = '熱血派';
+        emoji = '🔥';
+      }
     } else {
-      // カスタム入力またはプリセットタイプ（絵文字付き）
-      const isPresetType = otakuTypes.some(t => t.value === userOtakuType);
-      if (isPresetType) {
-        otakuTypeLabel = getOtakuTypeLabel(userOtakuType);
-        otakuTypeEmoji = getOtakuTypeEmoji(userOtakuType);
-        otakuTypeValue = userOtakuType;
+      // ID形式（slice_of_lifeなど）をラベルに変換
+      if (OTAKU_TYPE_ID_TO_LABEL[userOtakuType]) {
+        label = OTAKU_TYPE_ID_TO_LABEL[userOtakuType].label;
+        emoji = OTAKU_TYPE_ID_TO_LABEL[userOtakuType].emoji;
+        value = `${OTAKU_TYPE_ID_TO_LABEL[userOtakuType].emoji} ${OTAKU_TYPE_ID_TO_LABEL[userOtakuType].label}`;
       } else {
-        // カスタムテキストの場合
-        otakuTypeLabel = userOtakuType;
-        otakuTypeValue = userOtakuType;
-        otakuTypeEmoji = getOtakuTypeEmoji(userOtakuType);
+        // カスタム入力またはプリセットタイプ（絵文字付き）
+        const isPresetType = otakuTypes.some(t => t.value === userOtakuType);
+        if (isPresetType) {
+          label = getOtakuTypeLabel(userOtakuType);
+          emoji = getOtakuTypeEmoji(userOtakuType);
+          value = userOtakuType;
+        } else {
+          // カスタムテキストの場合
+          label = userOtakuType;
+          value = userOtakuType;
+          emoji = getOtakuTypeEmoji(userOtakuType);
+        }
       }
     }
-  }
+    
+    return { otakuTypeValue: value, otakuTypeLabel: label, otakuTypeEmoji: emoji };
+  }, [userOtakuType, tagCounts]);
 
   return (
     <>
@@ -149,116 +201,45 @@ export default function AnimeDNASection({
           </div>
         </div>
         
-        {/* メインコンテンツ */}
-        <div className="dna-main-content">
-          {/* 上部セクション: プロフィール + 統計（デスクトップで横並び） */}
-          <div className="dna-top-section">
-            {/* プロフィールセクション */}
-            <section className="dna-profile-section">
-              <div className="profile-left relative">
-                {/* アバター */}
-                <div 
-                  className="w-[135px] h-[135px] md:w-[150px] md:h-[150px] lg:w-[180px] lg:h-[180px] rounded-[18px] md:rounded-xl lg:rounded-2xl flex items-center justify-center overflow-hidden shadow-lg border-2 border-white/40"
-                  style={{
-                    background: 'linear-gradient(135deg, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.15) 100%)',
-                    boxShadow: '0 4px 15px rgba(0,0,0,0.1), inset 0 2px 0 rgba(255,255,255,0.3)'
-                  }}
-                >
-                  {userIcon && (userIcon.startsWith('http://') || userIcon.startsWith('https://') || userIcon.startsWith('data:')) ? (
-                    <img
-                      src={userIcon}
-                      alt="アイコン"
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = 'none';
-                        const parent = (e.target as HTMLImageElement).parentElement;
-                        if (parent) {
-                          const placeholder = document.createElement('div');
-                          placeholder.className = 'w-full h-full';
-                          placeholder.style.background = 'linear-gradient(135deg, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.15) 100%)';
-                          placeholder.style.boxShadow = 'inset 0 2px 0 rgba(255,255,255,0.3)';
-                          parent.appendChild(placeholder);
-                        }
-                      }}
-                    />
-                  ) : (
-                    <div 
-                      className="w-full h-full"
-                      style={{
-                        background: 'linear-gradient(135deg, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.15) 100%)',
-                        boxShadow: 'inset 0 2px 0 rgba(255,255,255,0.3)'
-                      }}
-                    ></div>
-                  )}
-                </div>
-                
-                {/* タイプバッジ（表示のみ） */}
-                <div
-                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 md:px-4 md:py-2 rounded-full backdrop-blur-sm border border-white/50" 
-                  style={{
-                    background: 'rgba(255, 255, 255, 0.35)',
-                    textShadow: '0 1px 2px rgba(0,0,0,0.1)',
-                    boxShadow: '0 2px 8px rgba(255,255,255,0.15), inset 0 1px 0 rgba(255,255,255,0.3)'
-                  }}
-                >
-                  <span className="text-white text-sm md:text-[13px] font-semibold">{otakuTypeLabel}</span>
-                </div>
+        {/* プロフィールセクション（1列、横並び） */}
+        <div className="flex items-center gap-4 sm:gap-6 mb-6">
+          {/* アバター */}
+          <div className="flex-shrink-0">
+            {userIcon && (userIcon.startsWith('http://') || userIcon.startsWith('https://') || userIcon.startsWith('data:')) ? (
+              <img
+                src={userIcon}
+                alt="アイコン"
+                className="w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-xl object-cover border-2 border-white/30 shadow-lg"
+              />
+            ) : (
+              <div className="w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 rounded-xl bg-white/10 border-2 border-white/30 flex items-center justify-center shadow-lg">
+                <span className="text-3xl sm:text-4xl">👤</span>
               </div>
-              
-              {/* ユーザー情報 */}
-              <div className="profile-info text-center md:text-left flex flex-col justify-center">
-                <h1 className="username text-xl md:text-2xl lg:text-[28px] font-bold md:font-[700] mb-1 text-white" style={{
-                  textShadow: '0 2px 10px rgba(0,0,0,0.2)',
-                }}>
-                  {userName}
-                </h1>
-                {userHandle ? (
-                  <p className="handle text-sm md:text-base text-white/70">
-                    {!isHandleVisible ? `@${userHandle}` : '@XXXX'}
-                  </p>
-                ) : null}
-              </div>
-            </section>
-            
-            {/* 統計グリッド */}
-            <section className="dna-stats-grid">
-              <div 
-                className="p-4 md:p-5 lg:p-7 text-center hover:transform hover:-translate-y-1 transition-all cursor-pointer backdrop-blur-md border border-white/50 rounded-xl"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.35)',
-                  boxShadow: '0 4px 15px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.4)'
-                }}
-              >
-                <p className="stat-value text-2xl md:text-3xl lg:text-[42px] font-black mb-1" style={{ color: '#00d4ff' }}>{count}</p>
-                <p className="stat-label text-xs md:text-[11px] lg:text-[13px] text-white/70 uppercase" style={{ letterSpacing: '0.5px' }}>作品数</p>
-              </div>
-              <div 
-                className="p-4 md:p-5 lg:p-7 text-center hover:transform hover:-translate-y-1 transition-all cursor-pointer backdrop-blur-md border border-white/50 rounded-xl"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.35)',
-                  boxShadow: '0 4px 15px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.4)'
-                }}
-              >
-                <p className="stat-value text-2xl md:text-3xl lg:text-[42px] font-black mb-1" style={{ color: '#e879d4' }}>{totalRewatchCount}</p>
-                <p className="stat-label text-xs md:text-[11px] lg:text-[13px] text-white/70 uppercase" style={{ letterSpacing: '0.5px' }}>視聴週</p>
-              </div>
-              <div 
-                className="p-4 md:p-5 lg:p-7 text-center hover:transform hover:-translate-y-1 transition-all cursor-pointer backdrop-blur-md border border-white/50 rounded-xl"
-                style={{
-                  background: 'rgba(255, 255, 255, 0.35)',
-                  boxShadow: '0 4px 15px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.4)'
-                }}
-              >
-                <p className="stat-value text-2xl md:text-3xl lg:text-[42px] font-black mb-1" style={{ color: '#ffd700' }}>
-                  {calculatedAverageRating > 0 ? `${calculatedAverageRating.toFixed(1)}` : '0.0'}
-                </p>
-                <p className="stat-label text-xs md:text-[11px] lg:text-[13px] text-white/70 uppercase" style={{ letterSpacing: '0.5px' }}>平均評価</p>
-              </div>
-            </section>
+            )}
           </div>
-          
-          {/* 下部セクション: 最推し作品（全幅） */}
-          <div className="dna-bottom-section">
+
+          {/* ユーザー情報 */}
+          <div className="flex flex-col gap-1">
+            <h2 className="text-xl sm:text-2xl md:text-3xl font-bold text-white" style={{
+              textShadow: '0 2px 10px rgba(0,0,0,0.2)',
+            }}>
+              {userName || 'ユーザー'}
+            </h2>
+            {userHandle && (
+              <p className="text-sm sm:text-base text-white/70">
+                {!isHandleVisible ? `@${userHandle}` : '@XXXX'}
+              </p>
+            )}
+            <span className="inline-flex items-center gap-1 px-3 py-1 bg-white/20 backdrop-blur-sm rounded-full text-sm text-white mt-1 w-fit" style={{
+              textShadow: '0 1px 2px rgba(0,0,0,0.1)',
+            }}>
+              {otakuTypeDisplay}
+            </span>
+          </div>
+        </div>
+
+        {/* 最推し作品セクション */}
+        <div>
             {/* 最推し作品（クリックで編集） */}
             <div 
               className="content-card p-5 md:p-6 lg:p-8 backdrop-blur-md border border-white/30 rounded-xl cursor-pointer hover:border-white/50 transition-all"
@@ -271,9 +252,9 @@ export default function AnimeDNASection({
               }}
             >
               <div className="card-header flex items-center justify-between mb-4 md:mb-5">
-                <div className="card-title text-sm md:text-base lg:text-lg font-semibold text-white flex items-center gap-2 md:gap-3">
-                  <span className="dna-trophy-icon"></span>
-                  最推し作品
+                <div className="card-title text-base md:text-lg lg:text-xl font-bold text-white flex items-center gap-2 md:gap-3">
+                  <span>🏆</span>
+                  <span>最推し作品</span>
                 </div>
               </div>
               {favoriteAnimeIds.length > 0 ? (
@@ -340,7 +321,6 @@ export default function AnimeDNASection({
                 </div>
               )}
             </div>
-          </div>
         </div>
       </div>
       
@@ -353,290 +333,74 @@ export default function AnimeDNASection({
               return;
             }
             
-            // html2canvasで画像保存
+            setIsSaving(true);
+
             try {
-              const html2canvas = (await import('html2canvas')).default;
-              const cardElement = document.querySelector('.dna-card-container');
-              if (cardElement) {
-                // すべてのスタイルシートを一時的に無効化（oklabを回避）
-                const originalStyleSheets: Array<{ element: HTMLLinkElement | HTMLStyleElement; disabled?: boolean; textContent?: string | null }> = [];
-                const allStyleSheets = document.querySelectorAll('style, link[rel="stylesheet"]');
-                
-                allStyleSheets.forEach((styleSheet) => {
-                  if (styleSheet instanceof HTMLStyleElement) {
-                    originalStyleSheets.push({
-                      element: styleSheet,
-                      textContent: styleSheet.textContent,
-                    });
-                    // oklabを含む場合は空にする
-                    if (styleSheet.textContent && styleSheet.textContent.includes('oklab')) {
-                      styleSheet.textContent = '';
-                    }
-                  } else if (styleSheet instanceof HTMLLinkElement) {
-                    originalStyleSheets.push({
-                      element: styleSheet,
-                      disabled: styleSheet.disabled,
-                    });
-                    // 外部スタイルシートを一時的に無効化
-                    styleSheet.disabled = true;
-                  }
-                });
-                
-                try {
-                  const canvas = await html2canvas(cardElement as HTMLElement, {
-                    onclone: (clonedDoc) => {
-                      // oklabを含むスタイルシートのみを削除
-                      const clonedStyleSheets = clonedDoc.querySelectorAll('style');
-                      clonedStyleSheets.forEach((styleSheet) => {
-                        if (styleSheet instanceof HTMLStyleElement && styleSheet.textContent && styleSheet.textContent.includes('oklab')) {
-                          styleSheet.remove();
-                        }
-                      });
-                      
-                      // 外部スタイルシートは保持（Tailwind CSSを維持）
-                      const clonedLinks = clonedDoc.querySelectorAll('link[rel="stylesheet"]');
-                      clonedLinks.forEach((link) => {
-                        // oklabを含む可能性がある場合は無効化
-                        if (link instanceof HTMLLinkElement) {
-                          // 外部スタイルシートは保持
-                        }
-                      });
-                      
-                      // カード要素に必要なスタイルを詳細に再適用
-                      const clonedCard = clonedDoc.querySelector('.dna-card-container') as HTMLElement;
-                      if (clonedCard) {
-                        // カードコンテナのスタイル
-                        clonedCard.style.position = 'relative';
-                        clonedCard.style.borderRadius = '24px';
-                        clonedCard.style.padding = '24px';
-                        clonedCard.style.overflow = 'hidden';
-                        clonedCard.style.boxShadow = '0 25px 50px -12px rgba(0, 0, 0, 0.5)';
-                        
-                        // グラスモーフィズムカードのスタイルを確実に適用
-                        const glassCards = clonedCard.querySelectorAll('.dna-glass-card');
-                        glassCards.forEach((card) => {
-                          const htmlCard = card as HTMLElement;
-                          htmlCard.style.background = 'rgba(255, 255, 255, 0.08)';
-                          htmlCard.style.backdropFilter = 'blur(20px)';
-                          htmlCard.style.setProperty('-webkit-backdrop-filter', 'blur(20px)');
-                          htmlCard.style.border = '1px solid rgba(255, 255, 255, 0.15)';
-                          htmlCard.style.borderRadius = '14px';
-                        });
-                        
-                        // テキストの色を確実に適用
-                        const allText = clonedCard.querySelectorAll('h1, h2, h3, p, span, div');
-                        allText.forEach((el) => {
-                          const htmlEl = el as HTMLElement;
-                          const classes = htmlEl.className.toString();
-                          
-                          // 白いテキスト
-                          if (classes.includes('text-white') || 
-                              htmlEl.closest('.dna-glass-card') || 
-                              htmlEl.tagName === 'H1' || 
-                              htmlEl.tagName === 'H2' || 
-                              htmlEl.tagName === 'H3') {
-                            htmlEl.style.color = 'white';
-                          }
-                          
-                          // 半透明の白いテキスト
-                          if (classes.includes('text-white/70') || classes.includes('text-white/60')) {
-                            htmlEl.style.color = 'rgba(255, 255, 255, 0.7)';
-                          }
-                        });
-                        
-                        // Flexboxレイアウトを再適用
-                        const flexElements = clonedCard.querySelectorAll('.flex, .dna-main-content, .dna-top-section, .dna-profile-section, .dna-stats-grid, .dna-bottom-section, .profile-left, .profile-info, .favorite-content, .card-header');
-                        flexElements.forEach((el) => {
-                          const htmlEl = el as HTMLElement;
-                          htmlEl.style.display = 'flex';
-                          
-                          if (htmlEl.classList.contains('dna-main-content') || 
-                              htmlEl.classList.contains('dna-top-section') || 
-                              htmlEl.classList.contains('dna-profile-section') || 
-                              htmlEl.classList.contains('dna-bottom-section')) {
-                            htmlEl.style.flexDirection = 'column';
-                          }
-                          
-                          if (htmlEl.classList.contains('dna-main-content')) {
-                            htmlEl.style.gap = '28px';
-                          }
-                          if (htmlEl.classList.contains('dna-top-section')) {
-                            htmlEl.style.flexDirection = 'row';
-                            htmlEl.style.alignItems = 'center';
-                            htmlEl.style.gap = '40px';
-                          }
-                          if (htmlEl.classList.contains('dna-profile-section')) {
-                            htmlEl.style.flexDirection = 'row';
-                            htmlEl.style.alignItems = 'center';
-                            htmlEl.style.gap = '20px';
-                            htmlEl.style.flexShrink = '0';
-                          }
-                          if (htmlEl.classList.contains('profile-info')) {
-                            htmlEl.style.display = 'flex';
-                            htmlEl.style.flexDirection = 'column';
-                            htmlEl.style.justifyContent = 'center';
-                          }
-                          if (htmlEl.classList.contains('dna-stats-grid')) {
-                            htmlEl.style.display = 'grid';
-                            htmlEl.style.gridTemplateColumns = 'repeat(3, 1fr)';
-                            htmlEl.style.gap = '20px';
-                            htmlEl.style.flex = '1';
-                          }
-                          if (htmlEl.classList.contains('dna-bottom-section')) {
-                            htmlEl.style.display = 'block';
-                            htmlEl.style.width = '100%';
-                          }
-                          if (htmlEl.classList.contains('favorite-content')) {
-                            htmlEl.style.flexDirection = 'row';
-                            htmlEl.style.alignItems = 'center';
-                            htmlEl.style.justifyContent = 'center';
-                            htmlEl.style.gap = '16px';
-                          }
-                        });
-                        
-                        // フォントサイズとウェイト
-                        const h1 = clonedCard.querySelectorAll('h1');
-                        h1.forEach((el) => {
-                          (el as HTMLElement).style.fontSize = '28px';
-                          (el as HTMLElement).style.fontWeight = '700';
-                          (el as HTMLElement).style.color = 'white';
-                        });
-                        
-                        const h2 = clonedCard.querySelectorAll('h2');
-                        h2.forEach((el) => {
-                          (el as HTMLElement).style.fontSize = '20px';
-                          (el as HTMLElement).style.fontWeight = '900';
-                          (el as HTMLElement).style.color = 'white';
-                        });
-                        
-                        const statValues = clonedCard.querySelectorAll('.stat-value');
-                        statValues.forEach((el) => {
-                          const htmlEl = el as HTMLElement;
-                          htmlEl.style.fontSize = '42px';
-                          htmlEl.style.fontWeight = '900';
-                          htmlEl.style.marginBottom = '4px';
-                        });
-                        
-                        // 間隔とマージン
-                        const mb6 = clonedCard.querySelectorAll('.mb-6');
-                        mb6.forEach((el) => {
-                          (el as HTMLElement).style.marginBottom = '24px';
-                        });
-                        
-                        const mb4 = clonedCard.querySelectorAll('.mb-4');
-                        mb4.forEach((el) => {
-                          (el as HTMLElement).style.marginBottom = '16px';
-                        });
-                        
-                        const mb3 = clonedCard.querySelectorAll('.mb-3');
-                        mb3.forEach((el) => {
-                          (el as HTMLElement).style.marginBottom = '12px';
-                        });
-                        
-                        const mb1 = clonedCard.querySelectorAll('.mb-1');
-                        mb1.forEach((el) => {
-                          (el as HTMLElement).style.marginBottom = '4px';
-                        });
-                        
-                        // パディング
-                        const p4 = clonedCard.querySelectorAll('.p-4');
-                        p4.forEach((el) => {
-                          (el as HTMLElement).style.padding = '16px';
-                        });
-                        
-                        const p6 = clonedCard.querySelectorAll('.p-6');
-                        p6.forEach((el) => {
-                          (el as HTMLElement).style.padding = '24px';
-                        });
-                        
-                        // テキストアライン
-                        const textCenter = clonedCard.querySelectorAll('.text-center');
-                        textCenter.forEach((el) => {
-                          (el as HTMLElement).style.textAlign = 'center';
-                        });
-                        
-                        // 2025の枠のスタイルを明示的に適用
-                        const allGlassCards = clonedCard.querySelectorAll('.dna-glass-card');
-                        allGlassCards.forEach((card) => {
-                          const htmlCard = card as HTMLElement;
-                          // 2025を含むdna-glass-cardを探す
-                          if (htmlCard.textContent?.includes('2025')) {
-                            htmlCard.style.display = 'flex';
-                            htmlCard.style.alignItems = 'center';
-                            htmlCard.style.justifyContent = 'center';
-                            htmlCard.style.padding = '8px 16px';
-                          }
-                        });
-                        
-                        // プロフィールセクションの高さを揃える
-                        const profileSection = clonedCard.querySelector('.dna-profile-section') as HTMLElement;
-                        if (profileSection) {
-                          profileSection.style.alignItems = 'center';
-                          const profileLeft = profileSection.querySelector('.profile-left') as HTMLElement;
-                          const profileInfo = profileSection.querySelector('.profile-info') as HTMLElement;
-                          if (profileLeft && profileInfo) {
-                            profileLeft.style.display = 'flex';
-                            profileLeft.style.flexDirection = 'column';
-                            profileLeft.style.alignItems = 'center';
-                            profileInfo.style.display = 'flex';
-                            profileInfo.style.flexDirection = 'column';
-                            profileInfo.style.justifyContent = 'center';
-                            
-                            // プロフィール画像のサイズを保存用に調整（100pxに固定）
-                            // profile-leftの最初の子要素がアバター要素
-                            if (profileLeft.firstElementChild) {
-                              const avatarElement = profileLeft.firstElementChild as HTMLElement;
-                              avatarElement.style.width = '100px';
-                              avatarElement.style.height = '100px';
-                              avatarElement.style.minWidth = '100px';
-                              avatarElement.style.minHeight = '100px';
-                              avatarElement.style.maxWidth = '100px';
-                              avatarElement.style.maxHeight = '100px';
-                            }
-                          }
-                        }
-                      }
-                    },
-                    ignoreElements: (element) => {
-                      // oklabを含むstyle要素を無視
-                      if (element instanceof HTMLStyleElement && element.textContent?.includes('oklab')) {
-                        return true;
-                      }
-                      return false;
-                    },
-                    useCORS: true,
-                    allowTaint: false,
-                    logging: false,
-                    backgroundColor: null, // 透明背景でカードのグラデーションを保持
-                    scale: 2,
-                    windowWidth: cardElement.scrollWidth,
-                    windowHeight: cardElement.scrollHeight,
-                  });
-                  const url = canvas.toDataURL('image/png');
-                  const link = document.createElement('a');
-                  link.download = 'anime-dna-card.png';
-                  link.href = url;
-                  link.click();
-                } finally {
-                  // スタイルシートを元に戻す
-                  originalStyleSheets.forEach(({ element, disabled, textContent }) => {
-                    if (element instanceof HTMLStyleElement && textContent !== undefined) {
-                      element.textContent = textContent || '';
-                    } else if (element instanceof HTMLLinkElement && disabled !== undefined) {
-                      element.disabled = disabled;
-                    }
-                  });
-                }
+              // 1. 一時的なコンテナを作成
+              const container = document.createElement('div');
+              container.style.position = 'absolute';
+              container.style.left = '-9999px';
+              container.style.top = '0';
+              document.body.appendChild(container);
+
+              // 2. 保存用データを準備（統計情報なし）
+              const exportData = {
+                userName: userName || 'ユーザー',
+                userHandle,
+                avatarUrl: userIcon,
+                otakuTypeDisplay,
+                favoriteAnimes: favoriteAnimesData,
+              };
+
+              // 3. ReactDOMでレンダリング
+              const root = createRoot(container);
+              
+              await new Promise<void>((resolve) => {
+                root.render(<DNACardForExport {...exportData} />);
+                // レンダリング完了を待つ
+                setTimeout(resolve, 500);
+              });
+
+              // 4. 画像を読み込む時間を待つ（プロキシ経由の画像取得を待つ）
+              await new Promise(resolve => setTimeout(resolve, 1500));
+
+              // 5. html2canvasで画像化
+              const targetElement = container.firstChild as HTMLElement;
+              
+              if (!targetElement) {
+                throw new Error('レンダリングされた要素が見つかりません');
               }
+
+              const canvas = await html2canvas(targetElement, {
+                scale: 2, // 高解像度
+                useCORS: true, // 外部画像のCORS対応
+                allowTaint: false,
+                backgroundColor: null,
+                logging: false,
+              });
+
+              // 6. ダウンロード
+              const link = document.createElement('a');
+              link.download = `anime-dna-${Date.now()}.png`;
+              link.href = canvas.toDataURL('image/png');
+              link.click();
+
+              // 7. クリーンアップ
+              root.unmount();
+              document.body.removeChild(container);
+
             } catch (error) {
-              console.error('Failed to save image:', error);
+              console.error('画像保存エラー:', error);
               const errorMessage = error instanceof Error ? error.message : String(error);
               alert(`画像の保存に失敗しました。\n\nエラー: ${errorMessage}\n\n詳細はブラウザのコンソール（F12）を確認してください。`);
+            } finally {
+              setIsSaving(false);
             }
           }}
-          className="flex-1 bg-white dark:bg-gray-800 text-gray-900 dark:text-white border-2 border-gray-300 dark:border-gray-600 py-3 rounded-xl font-bold shadow-md hover:border-[#e879d4] hover:shadow-lg transition-all hover:scale-[1.02] active:scale-[0.98] font-mixed"
+          disabled={isSaving}
+          className="flex-1 bg-white dark:bg-gray-800 text-gray-900 dark:text-white border-2 border-gray-300 dark:border-gray-600 py-3 rounded-xl font-bold shadow-md hover:border-[#e879d4] hover:shadow-lg transition-all hover:scale-[1.02] active:scale-[0.98] font-mixed disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          画像を保存
+          {isSaving ? '保存中...' : '画像を保存'}
         </button>
         <button
           onClick={() => setShowShareModal(true)}
