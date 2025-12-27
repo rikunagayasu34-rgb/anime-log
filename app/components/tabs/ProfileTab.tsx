@@ -589,6 +589,20 @@ export function ProfileTab({
             </button>
           </div>
           
+          {/* ご意見・ご感想 */}
+          <a
+            href="https://docs.google.com/forms/d/e/1FAIpQLScfwMPJs8-qazTa9kfnDU6b4gqRLJVleDJkDgeCFDeuJjlxUQ/viewform"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full px-4 py-3 text-left bg-gray-50 dark:bg-gray-700 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors flex items-center justify-between"
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-xl">💬</span>
+              <span className="dark:text-white font-medium">ご意見・ご感想</span>
+            </div>
+            <span className="text-gray-400">›</span>
+          </a>
+          
           {/* データをエクスポート */}
           <button
             onClick={() => {}}
