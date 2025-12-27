@@ -81,8 +81,8 @@ export function useAnimeReviews(user: User | null) {
           spoilerHidden: r.spoiler_hidden,
           likes: r.likes || 0,
           helpfulCount: r.helpful_count || 0,
-          createdAt: new Date(r.created_at),
-          updatedAt: new Date(r.updated_at),
+          createdAt: r.created_at,
+          updatedAt: r.updated_at,
           userLiked: likedReviewIds.has(r.id),
           userHelpful: helpfulReviewIds.has(r.id),
         }));

@@ -1,5 +1,6 @@
 'use client';
 
+import { useCallback } from 'react';
 import type { EvangelistList, FavoriteCharacter, VoiceActor } from '../types';
 
 interface UseModalHandlersProps {
@@ -57,55 +58,61 @@ export function useModalHandlers({
   setNewVoiceActorAnimeIds,
   setNewVoiceActorNotes,
 }: UseModalHandlersProps) {
-  const handleCreateListSave = (list: { title: string; description: string; animeIds: number[] }) => {
-    if (editingList) {
-      const updatedLists = evangelistLists.map(l =>
-        l.id === editingList.id
-          ? {
-              ...l,
-              title: list.title,
-              description: list.description,
-              animeIds: list.animeIds,
-            }
-          : l
-      );
-      setEvangelistLists(updatedLists);
-    } else {
-      const newList: EvangelistList = {
-        id: Date.now(),
-        title: list.title,
-        description: list.description,
-        animeIds: list.animeIds,
-        createdAt: new Date(),
-      };
-      setEvangelistLists([...evangelistLists, newList]);
-    }
-    setEditingList(null);
-  };
+  // 布教リスト保存
+  const handleCreateListSave = useCallback(
+    (list: { title: string; description: string; animeIds: number[] }) => {
+      if (editingList) {
+        const updatedLists = evangelistLists.map((l) =>
+          l.id === editingList.id
+            ? { ...l, title: list.title, description: list.description, animeIds: list.animeIds }
+            : l
+        );
+        setEvangelistLists(updatedLists);
+      } else {
+        const newList: EvangelistList = {
+          id: Date.now(),
+          title: list.title,
+          description: list.description,
+          animeIds: list.animeIds,
+          createdAt: new Date(),
+        };
+        setEvangelistLists([...evangelistLists, newList]);
+      }
+      setEditingList(null);
+    },
+    [editingList, evangelistLists, setEvangelistLists, setEditingList]
+  );
 
-  const handleCreateListClose = () => {
+  // 布教リストモーダルを閉じる
+  const handleCreateListClose = useCallback(() => {
     setShowCreateListModal(false);
     setEditingList(null);
-  };
+  }, [setShowCreateListModal, setEditingList]);
 
-  const handleCharacterSave = (character: FavoriteCharacter) => {
-    if (editingCharacter) {
-      setFavoriteCharacters(favoriteCharacters.map(c =>
-        c.id === editingCharacter.id ? character : c
-      ));
-    } else {
-      setFavoriteCharacters([...favoriteCharacters, character]);
-    }
+  // キャラクター保存
+  const handleCharacterSave = useCallback(
+    (character: FavoriteCharacter) => {
+      if (editingCharacter) {
+        setFavoriteCharacters(
+          favoriteCharacters.map((c) => (c.id === editingCharacter.id ? character : c))
+        );
+      } else {
+        setFavoriteCharacters([...favoriteCharacters, character]);
+      }
+      setShowAddCharacterModal(false);
+      setEditingCharacter(null);
+    },
+    [editingCharacter, favoriteCharacters, setFavoriteCharacters, setShowAddCharacterModal, setEditingCharacter]
+  );
+
+  // キャラクターモーダルを閉じる
+  const handleCharacterClose = useCallback(() => {
     setShowAddCharacterModal(false);
     setEditingCharacter(null);
-  };
+  }, [setShowAddCharacterModal, setEditingCharacter]);
 
-  const handleCharacterClose = () => {
-    setShowAddCharacterModal(false);
-    setEditingCharacter(null);
-  };
-
-  const handleOpenAddCharacterModal = () => {
+  // キャラクター追加モーダルを開く
+  const handleOpenAddCharacterModal = useCallback(() => {
     setNewCharacterName('');
     setNewCharacterAnimeId(null);
     setNewCharacterImage('👤');
@@ -114,53 +121,97 @@ export function useModalHandlers({
     setNewCustomTag('');
     setEditingCharacter(null);
     setShowAddCharacterModal(true);
-  };
+  }, [
+    setNewCharacterName,
+    setNewCharacterAnimeId,
+    setNewCharacterImage,
+    setNewCharacterCategory,
+    setNewCharacterTags,
+    setNewCustomTag,
+    setEditingCharacter,
+    setShowAddCharacterModal,
+  ]);
 
-  const handleEditCharacter = (character: FavoriteCharacter) => {
-    setEditingCharacter(character);
-    setNewCharacterName(character.name);
-    setNewCharacterAnimeId(character.animeId);
-    setNewCharacterImage(character.image);
-    setNewCharacterCategory(character.category);
-    setNewCharacterTags([...character.tags]);
-    setNewCustomTag('');
-    setShowAddCharacterModal(true);
-  };
+  // キャラクター編集
+  const handleEditCharacter = useCallback(
+    (character: FavoriteCharacter) => {
+      setEditingCharacter(character);
+      setNewCharacterName(character.name);
+      setNewCharacterAnimeId(character.animeId);
+      setNewCharacterImage(character.image);
+      setNewCharacterCategory(character.category);
+      setNewCharacterTags([...character.tags]);
+      setNewCustomTag('');
+      setShowAddCharacterModal(true);
+    },
+    [
+      setEditingCharacter,
+      setNewCharacterName,
+      setNewCharacterAnimeId,
+      setNewCharacterImage,
+      setNewCharacterCategory,
+      setNewCharacterTags,
+      setNewCustomTag,
+      setShowAddCharacterModal,
+    ]
+  );
 
-  const handleVoiceActorSave = (voiceActor: VoiceActor) => {
-    if (editingVoiceActor) {
-      setVoiceActors(voiceActors.map(va => 
-        va.id === editingVoiceActor.id ? voiceActor : va
-      ));
-    } else {
-      setVoiceActors([...voiceActors, voiceActor]);
-    }
+  // 声優保存
+  const handleVoiceActorSave = useCallback(
+    (voiceActor: VoiceActor) => {
+      if (editingVoiceActor) {
+        setVoiceActors(voiceActors.map((va) => (va.id === editingVoiceActor.id ? voiceActor : va)));
+      } else {
+        setVoiceActors([...voiceActors, voiceActor]);
+      }
+      setShowAddVoiceActorModal(false);
+      setEditingVoiceActor(null);
+    },
+    [editingVoiceActor, voiceActors, setVoiceActors, setShowAddVoiceActorModal, setEditingVoiceActor]
+  );
+
+  // 声優モーダルを閉じる
+  const handleVoiceActorClose = useCallback(() => {
     setShowAddVoiceActorModal(false);
     setEditingVoiceActor(null);
-  };
+  }, [setShowAddVoiceActorModal, setEditingVoiceActor]);
 
-  const handleVoiceActorClose = () => {
-    setShowAddVoiceActorModal(false);
-    setEditingVoiceActor(null);
-  };
-
-  const handleOpenAddVoiceActorModal = () => {
+  // 声優追加モーダルを開く
+  const handleOpenAddVoiceActorModal = useCallback(() => {
     setNewVoiceActorName('');
     setNewVoiceActorImage('🎤');
     setNewVoiceActorAnimeIds([]);
     setNewVoiceActorNotes('');
     setEditingVoiceActor(null);
     setShowAddVoiceActorModal(true);
-  };
+  }, [
+    setNewVoiceActorName,
+    setNewVoiceActorImage,
+    setNewVoiceActorAnimeIds,
+    setNewVoiceActorNotes,
+    setEditingVoiceActor,
+    setShowAddVoiceActorModal,
+  ]);
 
-  const handleEditVoiceActor = (actor: VoiceActor) => {
-    setEditingVoiceActor(actor);
-    setNewVoiceActorName(actor.name);
-    setNewVoiceActorImage(actor.image);
-    setNewVoiceActorAnimeIds(actor.animeIds);
-    setNewVoiceActorNotes(actor.notes || '');
-    setShowAddVoiceActorModal(true);
-  };
+  // 声優編集
+  const handleEditVoiceActor = useCallback(
+    (actor: VoiceActor) => {
+      setEditingVoiceActor(actor);
+      setNewVoiceActorName(actor.name);
+      setNewVoiceActorImage(actor.image);
+      setNewVoiceActorAnimeIds(actor.animeIds);
+      setNewVoiceActorNotes(actor.notes || '');
+      setShowAddVoiceActorModal(true);
+    },
+    [
+      setEditingVoiceActor,
+      setNewVoiceActorName,
+      setNewVoiceActorImage,
+      setNewVoiceActorAnimeIds,
+      setNewVoiceActorNotes,
+      setShowAddVoiceActorModal,
+    ]
+  );
 
   return {
     handleCreateListSave,
@@ -175,4 +226,3 @@ export function useModalHandlers({
     handleEditVoiceActor,
   };
 }
-

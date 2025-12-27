@@ -39,7 +39,6 @@ export function ProfileTab({
   userSearchQuery,
   setUserSearchQuery,
   searchedUsers,
-  recommendedUsers,
   isSearchingUsers,
   handleUserSearch,
   handleViewUserProfile,
@@ -76,7 +75,6 @@ export function ProfileTab({
   userSearchQuery: string;
   setUserSearchQuery: (query: string) => void;
   searchedUsers: UserProfile[];
-  recommendedUsers: UserProfile[];
   isSearchingUsers: boolean;
   handleUserSearch: () => Promise<void>;
   handleViewUserProfile: (userId: string) => Promise<void>;
@@ -528,28 +526,6 @@ export function ProfileTab({
               </div>
             </div>
           )}
-          
-          {/* おすすめユーザー */}
-          <div>
-            <h4 className="font-bold text-sm mb-2 dark:text-white">おすすめユーザー</h4>
-            {recommendedUsers.length > 0 ? (
-              <div className="space-y-2">
-                {recommendedUsers.map((u) => (
-                  <UserCard
-                    key={u.id}
-                    user={u}
-                    onUserClick={() => handleViewUserProfile(u.id)}
-                    onFollowClick={() => handleToggleFollow(u.id)}
-                    isFollowing={userFollowStatus[u.id] || false}
-                  />
-                ))}
-              </div>
-            ) : (
-              <p className="text-gray-500 dark:text-gray-400 text-center py-4 text-sm">
-                公開プロフィールのユーザーがいません
-              </p>
-            )}
-          </div>
         </div>
       </div>
       

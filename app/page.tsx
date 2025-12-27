@@ -246,8 +246,6 @@ export default function Home() {
     setUserSearchQuery,
     searchedUsers,
     setSearchedUsers,
-    recommendedUsers,
-    setRecommendedUsers,
     isSearchingUsers,
     selectedUserProfile,
     setSelectedUserProfile,
@@ -494,7 +492,6 @@ export default function Home() {
             userSearchQuery={userSearchQuery}
             setUserSearchQuery={setUserSearchQuery}
             searchedUsers={searchedUsers}
-            recommendedUsers={recommendedUsers}
             isSearchingUsers={isSearchingUsers}
             handleUserSearch={handleUserSearch}
             handleViewUserProfile={handleViewUserProfile}

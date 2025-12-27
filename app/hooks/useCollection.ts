@@ -1,94 +1,82 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { EvangelistList, FavoriteCharacter, VoiceActor } from '../types';
+
+// localStorageから読み込むヘルパー
+function loadFromStorage<T>(key: string, transform?: (data: T) => T): T | null {
+  try {
+    const saved = localStorage.getItem(key);
+    if (!saved) return null;
+    const parsed = JSON.parse(saved);
+    return transform ? transform(parsed) : parsed;
+  } catch (e) {
+    console.error(`Failed to parse ${key}:`, e);
+    return null;
+  }
+}
+
+// localStorageに保存するヘルパー
+function saveToStorage<T>(key: string, data: T): void {
+  localStorage.setItem(key, JSON.stringify(data));
+}
 
 export function useCollection() {
   const [evangelistLists, setEvangelistLists] = useState<EvangelistList[]>([]);
   const [favoriteCharacters, setFavoriteCharacters] = useState<FavoriteCharacter[]>([]);
   const [voiceActors, setVoiceActors] = useState<VoiceActor[]>([]);
+  
+  // 初回読み込み完了フラグ
+  const isInitialized = useRef(false);
 
   // localStorageから初期値を読み込む
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const savedLists = localStorage.getItem('evangelistLists');
-      const savedCharacters = localStorage.getItem('favoriteCharacters');
-      const savedVoiceActors = localStorage.getItem('voiceActors');
-      
-      // 布教リストを読み込む
-      if (savedLists) {
-        try {
-          const parsedLists = JSON.parse(savedLists);
-          // Date型に変換
-          const listsWithDates = parsedLists.map((list: any) => ({
-            ...list,
-            createdAt: new Date(list.createdAt),
-          }));
-          setEvangelistLists(listsWithDates);
-        } catch (e) {
-          console.error('Failed to parse evangelist lists', e);
-        }
-      }
-      
-      // 推しキャラを読み込む
-      if (savedCharacters) {
-        try {
-          const parsedCharacters = JSON.parse(savedCharacters);
-          // サンプルデータを検出（IDが1-3のキャラクターが含まれている場合）
-          const hasSampleData = parsedCharacters.some((char: FavoriteCharacter) =>
-            char.id >= 1 && char.id <= 3
-          );
-          
-          if (hasSampleData) {
-            // サンプルデータが含まれている場合はlocalStorageをクリア
-            localStorage.removeItem('favoriteCharacters');
-            setFavoriteCharacters([]);
-          } else {
-            setFavoriteCharacters(parsedCharacters);
-          }
-        } catch (e) {
-          console.error('Failed to parse favorite characters', e);
-          // エラーの場合は空の配列を使用
-          setFavoriteCharacters([]);
-        }
+    // 布教リストを読み込む
+    const lists = loadFromStorage<EvangelistList[]>('evangelistLists', (data) =>
+      data.map((list) => ({
+        ...list,
+        createdAt: new Date(list.createdAt),
+      }))
+    );
+    if (lists) setEvangelistLists(lists);
+
+    // 推しキャラを読み込む
+    const characters = loadFromStorage<FavoriteCharacter[]>('favoriteCharacters');
+    if (characters) {
+      // サンプルデータを検出（IDが1-3のキャラクター）
+      const hasSampleData = characters.some((char) => char.id >= 1 && char.id <= 3);
+      if (hasSampleData) {
+        localStorage.removeItem('favoriteCharacters');
       } else {
-        // 保存データがない場合は空の配列を使用
-        setFavoriteCharacters([]);
-      }
-      
-      // 声優を読み込む
-      if (savedVoiceActors) {
-        try {
-          const parsedVoiceActors = JSON.parse(savedVoiceActors);
-          setVoiceActors(parsedVoiceActors);
-        } catch (e) {
-          console.error('Failed to parse voice actors', e);
-          setVoiceActors([]);
-        }
-      } else {
-        setVoiceActors([]);
+        setFavoriteCharacters(characters);
       }
     }
+
+    // 声優を読み込む
+    const actors = loadFromStorage<VoiceActor[]>('voiceActors');
+    if (actors) setVoiceActors(actors);
+
+    isInitialized.current = true;
   }, []);
 
   // 布教リストをlocalStorageに保存
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('evangelistLists', JSON.stringify(evangelistLists));
+    if (isInitialized.current) {
+      saveToStorage('evangelistLists', evangelistLists);
     }
   }, [evangelistLists]);
 
   // 推しキャラをlocalStorageに保存
   useEffect(() => {
-    if (typeof window !== 'undefined' && favoriteCharacters.length > 0) {
-      localStorage.setItem('favoriteCharacters', JSON.stringify(favoriteCharacters));
+    if (isInitialized.current && favoriteCharacters.length > 0) {
+      saveToStorage('favoriteCharacters', favoriteCharacters);
     }
   }, [favoriteCharacters]);
 
   // 声優をlocalStorageに保存
   useEffect(() => {
-    if (typeof window !== 'undefined' && voiceActors.length > 0) {
-      localStorage.setItem('voiceActors', JSON.stringify(voiceActors));
+    if (isInitialized.current && voiceActors.length > 0) {
+      saveToStorage('voiceActors', voiceActors);
     }
   }, [voiceActors]);
 
@@ -101,4 +89,3 @@ export function useCollection() {
     setVoiceActors,
   };
 }
-

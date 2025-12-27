@@ -1,36 +1,86 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 俺のアニメログ
 
-## Getting Started
+自分だけのアニメ視聴履歴を記録・管理するWebアプリ
 
-First, run the development server:
+🔗 **本番URL**: https://anime-log-rho.vercel.app/
 
+## 特徴
+
+- 📺 **視聴記録** - アニメを追加・評価（⭐1〜5）・周回数を管理
+- 📅 **クール別表示** - 放送時期ごとに整理、見逃し作品を振り返り
+- 🎯 **シリーズ別表示** - 同シリーズの作品をまとめて表示
+- 📊 **傾向分析** - 視聴傾向をタグで分析、自分のオタクタイプを診断
+- 🧬 **DNAカード** - 視聴傾向を画像化してシェア
+- 🏆 **コレクション** - 推しキャラ、名言、布教リスト、主題歌を管理
+- 👥 **SNS機能** - ユーザー検索、フォロー、プロフィール公開
+- 🌙 **ダークモード** - 目に優しい表示切り替え
+
+## 技術スタック
+
+- **フロントエンド**: Next.js 16, React 19, TypeScript, Tailwind CSS 4
+- **バックエンド**: Supabase (認証・データベース)
+- **外部API**: AniList API (アニメ情報取得)
+- **ホスティング**: Vercel
+
+## 開発環境のセットアップ
+
+### 必要条件
+
+- Node.js 18.0.0以上
+- npm
+
+### インストール
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone https://github.com/Jilvert22/anime-log.git
+cd anime-log
+npm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 環境変数
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+`.env.local` を作成し、以下を設定:
+```
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 起動
+```bash
+npm run dev
+```
 
-## Learn More
+http://localhost:3000 でアクセス
 
-To learn more about Next.js, take a look at the following resources:
+## プロジェクト構成
+```
+app/
+├── components/
+│   ├── modals/      # モーダルコンポーネント (16個)
+│   └── tabs/        # タブコンポーネント (4個)
+├── hooks/           # カスタムフック (12個)
+├── lib/             # Supabase設定
+├── types/           # TypeScript型定義
+├── utils/           # ユーティリティ関数
+├── constants/       # 定数定義
+└── page.tsx         # メインページ
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## カラーパレット
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| 用途 | カラーコード |
+|------|-------------|
+| メインピンク | `#ffc2d1` |
+| メイン黄色 | `#ffd966` |
+| サブオレンジ | `#ffb07c` |
+| 背景（ライト） | `#fef6f0` |
+| 濃い色 | `#6b5b6e` |
 
-## Deploy on Vercel
+## 設計思想
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- **クール別の振り返り**: 特定時期に見れなかった作品を思い出せる
+- **シェア機能**: 好きな作品を人に自慢・語れる
+- **シンプル**: 機能過多を避け、使いやすさを重視
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## ライセンス
+
+Private
