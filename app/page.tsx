@@ -412,6 +412,7 @@ export default function Home() {
             onOpenAddForm={handleOpenAddForm}
             setSelectedAnime={setSelectedAnime}
             allAnimes={allAnimes}
+            user={user}
           />
         )}
         

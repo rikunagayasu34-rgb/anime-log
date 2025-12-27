@@ -100,4 +100,3 @@ export async function searchAnimeBySeason(
     pageInfo: data.data.Page.pageInfo
   };
 }
-

@@ -1,9 +1,13 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import type { Anime, Season } from '../../types';
 import { AnimeCard } from '../AnimeCard';
 import { GalleryTab } from './GalleryTab';
+import { WatchlistTab } from './WatchlistTab';
+
+// フィルターの型
+type FilterType = 'all' | 'unrated' | 'unwatched';
 
 // YearHeaderコンポーネント
 function YearHeader({ 
@@ -83,19 +87,19 @@ function SeasonHeader({
         <span className="text-gray-400 text-sm">
           {isExpanded ? '▼' : '▶'}
         </span>
-        <span className="font-bold text-gray-700 dark:text-gray-300">{season}</span>
+        <span className="font-medium text-gray-700 dark:text-gray-300">{season}</span>
       </div>
       
       <div className="flex items-center gap-3 text-sm">
         <span className="text-gray-500 dark:text-gray-400">
-          <span className="font-bold" style={{ color: '#764ba2' }}>{stats.total}</span> 作品
+          <span className="font-medium" style={{ color: '#764ba2' }}>{stats.total}</span> 作品
         </span>
         <span className="text-gray-500 dark:text-gray-400">
-          平均 <span className="font-bold text-orange-500">{stats.avgRating}</span>
+          平均 <span className="font-medium text-orange-500">{stats.avgRating}</span>
         </span>
         {stats.godTier > 0 && (
           <span className="text-gray-500 dark:text-gray-400">
-            神作 <span className="font-bold" style={{ color: '#e879d4' }}>{stats.godTier}</span>
+            神作 <span className="font-medium" style={{ color: '#e879d4' }}>{stats.godTier}</span>
           </span>
         )}
       </div>
@@ -117,9 +121,10 @@ export function HomeTab({
   onOpenAddForm,
   setSelectedAnime,
   allAnimes,
+  user,
 }: {
-  homeSubTab: 'seasons' | 'series' | 'gallery';
-  setHomeSubTab: (tab: 'seasons' | 'series' | 'gallery') => void;
+  homeSubTab: 'seasons' | 'series' | 'gallery' | 'watchlist';
+  setHomeSubTab: (tab: 'seasons' | 'series' | 'gallery' | 'watchlist') => void;
   count: number;
   totalRewatchCount: number;
   averageRating: number;
@@ -131,14 +136,32 @@ export function HomeTab({
   onOpenAddForm: () => void;
   setSelectedAnime: (anime: Anime | null) => void;
   allAnimes: Anime[];
+  user: any;
 }) {
-  // 年→季節→アニメの階層データを生成するuseMemo
+  const [filter, setFilter] = useState<FilterType>('all');
+  const seasonOrder = ['冬', '春', '夏', '秋'];
+
+  // フィルター適用
+  const filterAnime = useCallback((anime: Anime): boolean => {
+    switch (filter) {
+      case 'unrated':
+        return !anime.rating || anime.rating === 0;
+      case 'unwatched':
+        return !anime.rewatchCount || anime.rewatchCount === 0;
+      default:
+        return true;
+    }
+  }, [filter]);
+
+  // 年→季節→アニメの階層データを生成（フィルター適用済み）
   const yearSeasonData = useMemo(() => {
     const data = new Map<string, Map<string, Anime[]>>();
-    const seasonOrder = ['冬', '春', '夏', '秋'];
     
     seasons.forEach(season => {
       season.animes.forEach(anime => {
+        // フィルター適用
+        if (!filterAnime(anime)) return;
+        
         // season.name から年と季節を抽出（例: "2024年春" → year: "2024", seasonName: "春"）
         const match = season.name.match(/(\d{4})年(冬|春|夏|秋)/);
         if (match) {
@@ -159,20 +182,22 @@ export function HomeTab({
     // 年を降順でソート
     const sortedYears = Array.from(data.keys()).sort((a, b) => Number(b) - Number(a));
     
-    return sortedYears.map(year => ({
-      year,
-      seasons: seasonOrder
-        .filter(s => data.get(year)!.has(s))
-        .map(s => ({
-          season: s,
-          animes: data.get(year)!.get(s)!,
-        })),
-      allAnimes: Array.from(data.get(year)!.values()).flat(),
-    }));
-  }, [seasons]);
+    return sortedYears
+      .map(year => ({
+        year,
+        seasons: seasonOrder
+          .filter(s => data.get(year)!.has(s) && data.get(year)!.get(s)!.length > 0)
+          .map(s => ({
+            season: s,
+            animes: data.get(year)!.get(s)!,
+          })),
+        allAnimes: Array.from(data.get(year)!.values()).flat(),
+      }))
+      .filter(y => y.allAnimes.length > 0); // 作品がない年は非表示
+  }, [seasons, filterAnime, seasonOrder]);
 
-  // 全展開/全折りたたみ関数
-  const expandAll = () => {
+  // 全展開/全折りたたみ
+  const expandAll = useCallback(() => {
     const allYears = new Set(yearSeasonData.map(y => y.year));
     const allSeasons = new Set<string>();
     yearSeasonData.forEach(y => {
@@ -182,49 +207,76 @@ export function HomeTab({
     });
     setExpandedYears(allYears);
     setExpandedSeasons(allSeasons);
-  };
+  }, [yearSeasonData, setExpandedYears, setExpandedSeasons]);
 
-  const collapseAll = () => {
+  const collapseAll = useCallback(() => {
     setExpandedYears(new Set());
     setExpandedSeasons(new Set());
-  };
+  }, [setExpandedYears, setExpandedSeasons]);
 
-  const isAllExpanded = expandedYears.size === yearSeasonData.length;
+  const isAllExpanded = expandedYears.size === yearSeasonData.length && 
+    yearSeasonData.every(y => y.seasons.every(s => expandedSeasons.has(`${y.year}-${s.season}`)));
+
+  // 年の展開切り替え
+  const toggleYear = useCallback((year: string) => {
+    const newExpanded = new Set(expandedYears);
+    if (newExpanded.has(year)) {
+      newExpanded.delete(year);
+      // 年を閉じたら、その年の季節も閉じる
+      const newSeasons = new Set(expandedSeasons);
+      yearSeasonData.find(y => y.year === year)?.seasons.forEach(s => {
+        newSeasons.delete(`${year}-${s.season}`);
+      });
+      setExpandedSeasons(newSeasons);
+    } else {
+      newExpanded.add(year);
+    }
+    setExpandedYears(newExpanded);
+  }, [expandedYears, expandedSeasons, yearSeasonData, setExpandedYears, setExpandedSeasons]);
+
+  // 季節の展開切り替え
+  const toggleSeason = useCallback((year: string, season: string) => {
+    const key = `${year}-${season}`;
+    const newExpanded = new Set(expandedSeasons);
+    if (newExpanded.has(key)) {
+      newExpanded.delete(key);
+    } else {
+      newExpanded.add(key);
+    }
+    setExpandedSeasons(newExpanded);
+  }, [expandedSeasons, setExpandedSeasons]);
+
+  // フィルター後の統計
+  const filteredStats = useMemo(() => {
+    const filteredAnimes = allAnimes.filter(filterAnime);
+    return {
+      count: filteredAnimes.length,
+      totalCount: allAnimes.length,
+    };
+  }, [allAnimes, filterAnime]);
 
   return (
     <>
       {/* サブタブ */}
       <div className="flex gap-2 md:gap-3 mb-4 overflow-x-auto pb-2 scrollbar-hide">
-        <button
-          onClick={() => setHomeSubTab('seasons')}
-          className={`px-4 md:px-6 py-2 rounded-full text-sm md:text-base font-medium whitespace-nowrap transition-all ${
-            homeSubTab === 'seasons'
-              ? 'bg-[#e879d4] text-white'
-              : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-          }`}
-        >
-          クール別
-        </button>
-        <button
-          onClick={() => setHomeSubTab('series')}
-          className={`px-4 md:px-6 py-2 rounded-full text-sm md:text-base font-medium whitespace-nowrap transition-all ${
-            homeSubTab === 'series'
-              ? 'bg-[#e879d4] text-white'
-              : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-          }`}
-        >
-          シリーズ
-        </button>
-        <button
-          onClick={() => setHomeSubTab('gallery')}
-          className={`px-4 md:px-6 py-2 rounded-full text-sm md:text-base font-medium whitespace-nowrap transition-all ${
-            homeSubTab === 'gallery'
-              ? 'bg-[#e879d4] text-white'
-              : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-          }`}
-        >
-          ギャラリー
-        </button>
+        {[
+          { id: 'seasons', label: 'クール別' },
+          { id: 'series', label: 'シリーズ' },
+          { id: 'gallery', label: 'ギャラリー' },
+          { id: 'watchlist', label: '積みアニメ' },
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setHomeSubTab(tab.id as typeof homeSubTab)}
+            className={`px-4 md:px-6 py-2 rounded-full text-sm md:text-base font-medium whitespace-nowrap transition-all ${
+              homeSubTab === tab.id
+                ? 'bg-[#e879d4] text-white'
+                : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
       {homeSubTab === 'seasons' && (
@@ -256,7 +308,7 @@ export function HomeTab({
           </div>
 
           {/* コントロールバー */}
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
             <button 
               onClick={onOpenAddForm}
               className="py-3 px-6 border-2 border-dashed border-[#e879d4] rounded-xl text-[#e879d4] font-bold hover:border-[#d45dbf] hover:text-[#d45dbf] hover:bg-[#e879d4]/5 transition-colors"
@@ -264,13 +316,34 @@ export function HomeTab({
               + アニメを追加
             </button>
             
-            <button
-              onClick={isAllExpanded ? collapseAll : expandAll}
-              className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 rounded-lg shadow-sm hover:shadow-md transition-all text-sm font-medium text-gray-600 dark:text-gray-300 hover:text-gray-800"
-            >
-              {isAllExpanded ? '全て折りたたむ' : '全て展開'}
-            </button>
+            <div className="flex items-center gap-2">
+              {/* フィルター */}
+              <select
+                value={filter}
+                onChange={(e) => setFilter(e.target.value as FilterType)}
+                className="text-sm border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-[#e879d4]"
+              >
+                <option value="all">すべて</option>
+                <option value="unrated">未評価</option>
+                <option value="unwatched">周回未登録</option>
+              </select>
+              
+              {/* 全展開/全折りたたみ */}
+              <button
+                onClick={isAllExpanded ? collapseAll : expandAll}
+                className="px-4 py-2 bg-white dark:bg-gray-800 rounded-lg shadow-sm hover:shadow-md transition-all text-sm font-medium text-gray-600 dark:text-gray-300"
+              >
+                {isAllExpanded ? '全て折りたたむ' : '全て展開'}
+              </button>
+            </div>
           </div>
+
+          {/* フィルター適用中の表示 */}
+          {filter !== 'all' && (
+            <div className="mb-4 text-sm text-gray-500 dark:text-gray-400">
+              {filteredStats.count} / {filteredStats.totalCount} 作品を表示中
+            </div>
+          )}
 
           {/* 年別リスト */}
           <div className="space-y-3">
@@ -280,21 +353,7 @@ export function HomeTab({
                   year={year}
                   animes={allAnimes}
                   isExpanded={expandedYears.has(year)}
-                  onToggle={() => {
-                    const newExpanded = new Set(expandedYears);
-                    if (newExpanded.has(year)) {
-                      newExpanded.delete(year);
-                      // 年を閉じたら、その年の季節も閉じる
-                      const newSeasons = new Set(expandedSeasons);
-                      yearSeasons.forEach(s => {
-                        newSeasons.delete(`${year}-${s.season}`);
-                      });
-                      setExpandedSeasons(newSeasons);
-                    } else {
-                      newExpanded.add(year);
-                    }
-                    setExpandedYears(newExpanded);
-                  }}
+                  onToggle={() => toggleYear(year)}
                 />
                 
                 {expandedYears.has(year) && (
@@ -305,16 +364,7 @@ export function HomeTab({
                           season={season}
                           animes={animes}
                           isExpanded={expandedSeasons.has(`${year}-${season}`)}
-                          onToggle={() => {
-                            const key = `${year}-${season}`;
-                            const newExpanded = new Set(expandedSeasons);
-                            if (newExpanded.has(key)) {
-                              newExpanded.delete(key);
-                            } else {
-                              newExpanded.add(key);
-                            }
-                            setExpandedSeasons(newExpanded);
-                          }}
+                          onToggle={() => toggleSeason(year, season)}
                         />
                         
                         {expandedSeasons.has(`${year}-${season}`) && (
@@ -335,6 +385,13 @@ export function HomeTab({
               </div>
             ))}
           </div>
+
+          {/* 作品がない場合 */}
+          {yearSeasonData.length === 0 && (
+            <p className="text-gray-500 dark:text-gray-400 text-center py-8">
+              {filter !== 'all' ? '該当する作品がありません' : 'アニメが登録されていません'}
+            </p>
+          )}
         </>
       )}
 
@@ -346,6 +403,14 @@ export function HomeTab({
         <GalleryTab
           allAnimes={allAnimes}
           setSelectedAnime={setSelectedAnime}
+        />
+      )}
+
+      {homeSubTab === 'watchlist' && (
+        <WatchlistTab
+          setSelectedAnime={setSelectedAnime}
+          onOpenAddForm={onOpenAddForm}
+          user={user}
         />
       )}
     </>

@@ -7,6 +7,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { availableTags, ratingLabels } from '../../constants';
 import { AnimeReviewSection } from './AnimeReviewSection';
 import { updateAnimeInSeasons } from '../../utils/animeUpdates';
+import { addToWatchlist } from '../../lib/supabase';
 
 interface AnimeDetailModalProps {
   selectedAnime: Anime;
@@ -659,43 +660,72 @@ export function AnimeDetailModal({
               )}
             </div>
 
-            <div className="flex gap-3">
-              <button
-                onClick={async () => {
-                  // Supabaseから削除（ログイン時のみ）
-                  if (user) {
-                    try {
-                      const isLocalId = selectedAnime.id > 1000000;
-                      if (!isLocalId) {
-                        const { error } = await supabase
-                          .from('animes')
-                          .delete()
-                          .eq('id', selectedAnime.id)
-                          .eq('user_id', user.id);
-                        if (error) throw error;
-                      }
-                    } catch (error) {
-                      console.error('Failed to delete anime from Supabase:', error);
+            <div className="flex flex-col gap-3">
+              <div className="flex gap-3">
+                <button
+                  onClick={async () => {
+                    if (!user) {
+                      alert('ログインが必要です');
+                      return;
                     }
-                  }
+                    
+                    // アニメを積みアニメに追加（AniList IDはないので、タイトルと画像で追加）
+                    // AniList IDは後で検索できるように、-1を設定
+                    const success = await addToWatchlist({
+                      anilist_id: -1, // 後で検索可能にするため一時的に-1
+                      title: selectedAnime.title,
+                      image: selectedAnime.image || null,
+                    });
+                    
+                    if (success) {
+                      alert('積みアニメに追加しました');
+                    } else {
+                      alert('積みアニメの追加に失敗しました');
+                    }
+                  }}
+                  className="flex-1 bg-blue-500 text-white py-3 rounded-xl font-bold hover:bg-blue-600 transition-colors"
+                >
+                  積みアニメに移動
+                </button>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={async () => {
+                    // Supabaseから削除（ログイン時のみ）
+                    if (user) {
+                      try {
+                        const isLocalId = selectedAnime.id > 1000000;
+                        if (!isLocalId) {
+                          const { error } = await supabase
+                            .from('animes')
+                            .delete()
+                            .eq('id', selectedAnime.id)
+                            .eq('user_id', user.id);
+                          if (error) throw error;
+                        }
+                      } catch (error) {
+                        console.error('Failed to delete anime from Supabase:', error);
+                      }
+                    }
 
-                  const updatedSeasons = seasons.map(season => ({
-                    ...season,
-                    animes: season.animes.filter((anime) => anime.id !== selectedAnime.id),
-                  }));
-                  setSeasons(updatedSeasons);
-                  setSelectedAnime(null);
-                }}
-                className="flex-1 bg-red-500 text-white py-3 rounded-xl font-bold hover:bg-red-600 transition-colors"
-              >
-                削除
-              </button>
-              <button
-                onClick={() => setSelectedAnime(null)}
-                className="flex-1 bg-[#e879d4] text-white py-3 rounded-xl font-bold hover:bg-[#f09fe3] transition-colors"
-              >
-                閉じる
-              </button>
+                    const updatedSeasons = seasons.map(season => ({
+                      ...season,
+                      animes: season.animes.filter((anime) => anime.id !== selectedAnime.id),
+                    }));
+                    setSeasons(updatedSeasons);
+                    setSelectedAnime(null);
+                  }}
+                  className="flex-1 bg-red-500 text-white py-3 rounded-xl font-bold hover:bg-red-600 transition-colors"
+                >
+                  削除
+                </button>
+                <button
+                  onClick={() => setSelectedAnime(null)}
+                  className="flex-1 bg-[#e879d4] text-white py-3 rounded-xl font-bold hover:bg-[#f09fe3] transition-colors"
+                >
+                  閉じる
+                </button>
+              </div>
             </div>
           </>
         )}

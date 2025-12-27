@@ -359,3 +359,118 @@ export async function getProfileByHandle(handle: string): Promise<UserProfile | 
   
   return data;
 }
+
+// 積みアニメの型定義
+export type WatchlistItem = {
+  id: string;
+  user_id: string;
+  anilist_id: number;
+  title: string;
+  image: string | null;
+  memo: string | null;
+  created_at: string;
+};
+
+// 積みアニメ一覧を取得
+export async function getWatchlist(userId?: string): Promise<WatchlistItem[]> {
+  const { data: { user } } = await supabase.auth.getUser();
+  const targetUserId = userId || user?.id;
+  if (!targetUserId) return [];
+  
+  const { data, error } = await supabase
+    .from('watchlist')
+    .select('*')
+    .eq('user_id', targetUserId)
+    .order('created_at', { ascending: false });
+  
+  if (error) {
+    console.error('Failed to get watchlist:', error);
+    return [];
+  }
+  
+  return data || [];
+}
+
+// 積みアニメを追加（anilist_idが-1の場合は重複チェックなし）
+export async function addToWatchlist(item: {
+  anilist_id: number;
+  title: string;
+  image?: string | null;
+  memo?: string | null;
+}): Promise<boolean> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return false;
+  
+  // anilist_idが-1でない場合は重複チェック
+  if (item.anilist_id !== -1) {
+    const { data: existing } = await supabase
+      .from('watchlist')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('anilist_id', item.anilist_id)
+      .single();
+    
+    if (existing) {
+      // 既に登録されている場合は成功とみなす
+      return true;
+    }
+  }
+  
+  const { error } = await supabase
+    .from('watchlist')
+    .insert({
+      user_id: user.id,
+      anilist_id: item.anilist_id,
+      title: item.title,
+      image: item.image || null,
+      memo: item.memo || null,
+    });
+  
+  if (error) {
+    console.error('Failed to add to watchlist:', error);
+    return false;
+  }
+  
+  return true;
+}
+
+// 積みアニメを削除
+export async function removeFromWatchlist(anilistId: number): Promise<boolean> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return false;
+  
+  const { error } = await supabase
+    .from('watchlist')
+    .delete()
+    .eq('user_id', user.id)
+    .eq('anilist_id', anilistId);
+  
+  if (error) {
+    console.error('Failed to remove from watchlist:', error);
+    return false;
+  }
+  
+  return true;
+}
+
+// 積みアニメを更新（メモなど）
+export async function updateWatchlistItem(
+  anilistId: number,
+  updates: { memo?: string | null }
+): Promise<boolean> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return false;
+  
+  const { error } = await supabase
+    .from('watchlist')
+    .update(updates)
+    .eq('user_id', user.id)
+    .eq('anilist_id', anilistId);
+  
+  if (error) {
+    console.error('Failed to update watchlist item:', error);
+    return false;
+  }
+  
+  return true;
+}
