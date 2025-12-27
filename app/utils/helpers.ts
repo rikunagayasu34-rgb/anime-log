@@ -42,14 +42,15 @@ export function supabaseToAnime(row: any): Anime {
 }
 
 // タイトルからシリーズ名を自動判定する関数
-export function extractSeriesName(title: string): string | undefined {
-  // 「2期」「3期」「Season 2」「S2」などのパターンを検出
+export function extractSeriesName(title: string): string {
+  // 「2期」「3期」「Season 2」「S2」「The Final Season」などのパターンを検出
   const patterns = [
     /^(.+?)\s*[第]?(\d+)[期季]/,
     /^(.+?)\s*Season\s*(\d+)/i,
     /^(.+?)\s*S(\d+)/i,
     /^(.+?)\s*第(\d+)期/,
     /^(.+?)\s*第(\d+)シーズン/i,
+    /^(.+?)\s*The\s+Final\s+Season/i,
   ];
   
   for (const pattern of patterns) {
@@ -59,16 +60,32 @@ export function extractSeriesName(title: string): string | undefined {
     }
   }
   
-  return undefined;
+  // パターンにマッチしない場合は元の文字列を返す
+  return title;
 }
 
-// シーズン名を日本語に変換
-export function getSeasonName(season: string): string {
+// シーズン名を日本語に変換、または年とクォーターからシーズン名を生成する関数
+// オーバーロード: 文字列を受け取る場合（既存コードとの互換性）
+export function getSeasonName(season: string): string;
+// オーバーロード: 年とクォーターを受け取る場合（テスト用）
+export function getSeasonName(year: number, quarter: number): string;
+// 実装
+export function getSeasonName(seasonOrYear: string | number, quarter?: number): string {
+  // 2つの引数が渡された場合（年とクォーター）
+  if (typeof seasonOrYear === 'number' && quarter !== undefined) {
+    const seasonNames = ['冬', '春', '夏', '秋'];
+    if (quarter < 1 || quarter > 4) {
+      throw new Error('Quarter must be between 1 and 4');
+    }
+    return `${seasonOrYear}年${seasonNames[quarter - 1]}`;
+  }
+  
+  // 1つの引数が渡された場合（文字列のシーズン名）
   const seasonMap: { [key: string]: string } = {
     'WINTER': '冬',
     'SPRING': '春',
     'SUMMER': '夏',
     'FALL': '秋',
   };
-  return seasonMap[season] || season;
+  return seasonMap[seasonOrYear as string] || (seasonOrYear as string);
 }

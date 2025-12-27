@@ -51,6 +51,15 @@ npm run dev
 
 http://localhost:3000 でアクセス
 
+## テスト
+```bash
+npm run test        # ウォッチモードで実行
+npm run test:run    # 1回だけ実行
+npm run test:coverage  # カバレッジ付きで実行
+```
+
+テストは `__tests__/` ディレクトリに配置しています。
+
 ## プロジェクト構成
 ```
 app/
