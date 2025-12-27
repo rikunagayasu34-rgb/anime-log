@@ -37,7 +37,22 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* 混合フォントをデフォルトに設定 */
+/* Poppinsを先に指定することで、英数字はPoppins、日本語はM PLUS Roundedが適用される */
+.font-mixed {
+  font-family: var(--font-poppins), var(--font-rounded), system-ui, sans-serif;
+}
+
+/* 日本語のみ丸ゴシックにしたい場合 */
+.font-rounded-only {
+  font-family: var(--font-rounded), sans-serif;
+}
+
+/* 英数字のみPoppinsにしたい場合 */
+.font-poppins-only {
+  font-family: var(--font-poppins), sans-serif;
 }
 
 .scrollbar-hide {

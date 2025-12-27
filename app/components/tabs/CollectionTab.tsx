@@ -105,13 +105,13 @@ export function CollectionTab({
         
         type CollectionSubTabType = 'achievements' | 'characters' | 'quotes' | 'lists' | 'music' | 'voiceActors';
         
-        const collections: Array<{ id: CollectionSubTabType; name: string; icon: string; count: number }> = [
-          { id: 'achievements', name: '実績', icon: '🏆', count: achievements.length },
-          { id: 'characters', name: '推しキャラ', icon: '💕', count: favoriteCharacters.length },
-          { id: 'quotes', name: '名言', icon: '💬', count: allQuotes },
-          { id: 'lists', name: '布教リスト', icon: '📋', count: evangelistLists.length },
-          { id: 'music', name: '主題歌', icon: '🎵', count: allSongs },
-          { id: 'voiceActors', name: '声優', icon: '🎤', count: voiceActors.length },
+        const collections: Array<{ id: CollectionSubTabType; name: string; count: number }> = [
+          { id: 'achievements', name: '実績', count: achievements.length },
+          { id: 'characters', name: '推しキャラ', count: favoriteCharacters.length },
+          { id: 'quotes', name: '名言', count: allQuotes },
+          { id: 'lists', name: '布教リスト', count: evangelistLists.length },
+          { id: 'music', name: '主題歌', count: allSongs },
+          { id: 'voiceActors', name: '声優', count: voiceActors.length },
         ];
         
         return (
@@ -120,15 +120,14 @@ export function CollectionTab({
               <button
                 key={col.id}
                 onClick={() => setCollectionSubTab(col.id)}
-                className={`px-3 py-2.5 rounded-full transition-all flex flex-col items-center gap-1 ${
+                className={`px-4 py-3 rounded-full transition-all flex flex-col items-center gap-1 ${
                   collectionSubTab === col.id
                     ? 'bg-[#e879d4] text-white shadow-md'
                     : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
                 }`}
               >
-                <span className="text-xl">{col.icon}</span>
-                <span className="text-xs">{col.name}</span>
-                <span className="text-xs font-bold">{col.count}</span>
+                <span className="text-base font-medium">{col.name}</span>
+                <span className="text-sm font-bold">{col.count}</span>
               </button>
             ))}
           </div>

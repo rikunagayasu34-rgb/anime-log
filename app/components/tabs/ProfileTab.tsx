@@ -87,7 +87,6 @@ export function ProfileTab({
   const [isDNACardVisible, setIsDNACardVisible] = useState(true);
   const [showShareModal, setShowShareModal] = useState(false);
   const [isHandleVisible, setIsHandleVisible] = useState(true);
-  const [isIdVisible, setIsIdVisible] = useState(false);
   const [editingOtakuType, setEditingOtakuType] = useState(false);
   const [editingFavoriteAnime, setEditingFavoriteAnime] = useState(false);
   const [customOtakuType, setCustomOtakuType] = useState('');
@@ -1075,38 +1074,6 @@ export function ProfileTab({
           >
             ご意見・ご感想
           </a>
-          
-          {/* 自分のID表示 */}
-          {user && (
-            <div className="px-4 py-3 bg-gray-50 dark:bg-gray-700 rounded-xl">
-              <div className="flex items-center justify-between">
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">自分のID</p>
-                  <p className="text-sm font-mono dark:text-white truncate">
-                    {isIdVisible ? user.id : 'XXXX'}
-                  </p>
-                </div>
-                <button
-                  onClick={async () => {
-                    setIsIdVisible(true);
-                    try {
-                      await navigator.clipboard.writeText(user.id);
-                      alert('IDをクリップボードにコピーしました');
-                    } catch (error) {
-                      console.error('Failed to copy ID:', error);
-                      alert('IDのコピーに失敗しました');
-                    }
-                  }}
-                  className="ml-3 px-3 py-1.5 text-white rounded-lg text-xs font-medium transition-colors shrink-0" style={{
-                    background: '#e879d4',
-                  }} onMouseEnter={(e) => { e.currentTarget.style.background = '#f09fe3'; }} onMouseLeave={(e) => { e.currentTarget.style.background = '#e879d4'; }}
-                  title="IDをコピー"
-                >
-                  コピー
-                </button>
-              </div>
-            </div>
-          )}
           
           {/* ログアウト */}
           <button
